@@ -2,7 +2,12 @@
 
 #include "fs_status.h"
 #if defined(MH3_HAS_AURORA)
-#include "gfx/texture_replacement.hpp"
+// Declared here rather than including Aurora's internal header: the runtime
+// target does not add aurora-main/lib to every source's include path.
+namespace aurora::gfx::texture_replacement {
+void set_managed_roots(std::vector<std::filesystem::path> roots) noexcept;
+void reload() noexcept;
+}
 #endif
 
 #include <algorithm>
