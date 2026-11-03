@@ -33,6 +33,8 @@
 #include "quest_placement.h"
 #include "quest_catalog.h"
 #include "launcher_cheats.h"
+#include "cheat_manager.h"
+#include "mod_manager.h"
 #include "guest_worker.h"
 #include "net/online.h"
 #include "net/local_server.h"
@@ -1267,6 +1269,14 @@ int main(int argc, char** argv) {
                 MH3_THROW(std::runtime_error(kUsage));
 
             return 0;
+        }
+
+        {
+            const char* userDir = std::getenv("MH3_USER_DIR");
+            const auto cheatStatus = CheatManager::Initialize(userDir && *userDir ? std::filesystem::path(userDir) : std::filesystem::path("."));
+            if (!cheatStatus.ok)
+                std::fprintf(stderr, "MH3 cheat manager: %s\n", cheatStatus.message.c_str());
+            ModManager::Initialize(userDir && *userDir ? std::filesystem::path(userDir) : std::filesystem::path("."));
         }
 
         Memory::Init(24 * 1024 * 1024);

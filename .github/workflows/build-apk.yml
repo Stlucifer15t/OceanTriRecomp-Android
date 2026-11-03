@@ -2,8 +2,10 @@ name: Build Android APK (v1.5.5-test)
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'arena/**' ]
     tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -19,6 +21,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Run isolated manager host tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build
+          cmake -S tests/manager -B build-manager/tests -G Ninja \
+            -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build-manager/tests --parallel 2
+          ctest --test-dir build-manager/tests --output-on-failure
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +87,7 @@ jobs:
 
       - name: Publish Pre-Release on GitHub
         uses: softprops/action-gh-release@v2
-        if: github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           tag_name: v1.5.5-test
           name: "OceanTriRecomp Android v1.5.5 Test (Telemetry Logger)"

@@ -772,7 +772,8 @@ extern "C" void MH3_CheatEquipData(CpuContext* ctx) {
 
     func_8027EE6C(ctx);
 
-    if (On(Id::MaxAttackBase) && from == 0x80273C34 && ctx->gpr[3] == 0 && Activated(Id::MaxAttackBase)) {
+    if (from == 0x80273C34 && ctx->gpr[3] == 0 &&
+        (On(Id::MaximumDamage) || (On(Id::MaxAttackBase) && Activated(Id::MaxAttackBase)))) {
         const uint32_t data = Memory::Read32(out);
 
         if (data != 0)

@@ -3,8 +3,10 @@
 #include "texture.hpp"
 #include "texture_convert.hpp"
 #include <aurora/native_texture.hpp>
+#include <filesystem>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace aurora::gfx::texture_replacement {
 void initialize() noexcept;
@@ -19,5 +21,8 @@ std::optional<ConvertedTexture> load_native_replacement(const NativeTextureSourc
 size_t get_replacement_count() noexcept;
 void set_enabled(bool enabled) noexcept;
 bool is_enabled() noexcept;
+// Managed runtime mod roots, highest priority first. Call on the GL thread,
+// then reload(). Empty restores the legacy fixed-root behavior exactly.
+void set_managed_roots(std::vector<std::filesystem::path> roots) noexcept;
 void reload() noexcept;
 } // namespace aurora::gfx::texture_replacement
