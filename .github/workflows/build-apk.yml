@@ -74,9 +74,32 @@ jobs:
           echo "OPENSSL_ANDROID_DIR=$RUNNER_TEMP/openssl-android" >> $GITHUB_ENV
 
       - name: Compile Native Libraries and Package APK
+        id: android_build
         run: |
+          set -o pipefail
           chmod +x scripts/build-android.sh packaging/android/build_apk.sh
-          bash scripts/build-android.sh
+          bash scripts/build-android.sh 2>&1 | tee build-android.log
+
+      - name: Report Android build failure tail
+        if: failure() && steps.android_build.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo 'Android build failed. Last 200 log lines:'
+            echo '```'
+            tail -n 200 build-android.log
+            echo '```'
+          } > build-failure-comment.md
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" -F body=@build-failure-comment.md
+
+      - name: Upload Android build log
+        if: failure() && steps.android_build.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-build-log
+          path: build-android.log
+          if-no-files-found: warn
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
