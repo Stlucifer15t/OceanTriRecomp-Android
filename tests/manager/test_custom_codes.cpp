@@ -82,17 +82,20 @@ int main() {
         Check(Memory::Read32(0x8065CE60) == 0, "master OFF gates imported writes");
         Cheats::g_active.store(true);
         LocalOnlineServer::g_testMode = LocalOnlineServer::Mode::Community; // configured server, not an active session
+        Memory::Write8(0x8065AA84u, 2); // game mode 2 = village, not online
+        Memory::Write8(0x8065AA85u, 5); // play mode 5 = offline village
+        Memory::Write8(0x8065B234u, 0); // city flag clear
         CustomCodes::Step(nullptr);
         Check(Memory::Read8(0x8065CE60) == 0x7F && Memory::Read16(0x8065CE62) == 0x1234 && Memory::Read32(0x8065CE64) == 0xABCDEF01, "mapped big-endian RAM writes");
         Check(Cheats::g_used.load(), "actual custom use blocks later online admission");
         Memory::Write32(0x8065CE64, 0x11111111);
         CustomCodes::Step(nullptr);
         Check(Memory::Read32(0x8065CE64) == 0xABCDEF01, "live refill each step");
-        Memory::Write8(0x8065AA84u, 2); // guest City/online mode
+        Memory::Write8(0x8065AA85u, 4); // play mode 4 = online/City
         Memory::Write32(0x8065CE64, 0x22222222);
         CustomCodes::Step(nullptr);
-        Check(Memory::Read32(0x8065CE64) == 0x22222222, "guest online mode gates custom writes");
-        Memory::Write8(0x8065AA84u, 0);
+        Check(Memory::Read32(0x8065CE64) == 0x22222222, "guest online play mode gates custom writes");
+        Memory::Write8(0x8065AA85u, 5);
         LocalOnlineServer::g_testServer = true;
         CustomCodes::Step(nullptr);
         Check(Memory::Read32(0x8065CE64) == 0x22222222, "local hosting gates custom writes");

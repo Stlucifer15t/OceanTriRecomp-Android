@@ -6,6 +6,7 @@
 #include "launcher_cheats.h"
 #include "memory.h"
 #include "net/local_server.h"
+#include "net/online_session.h"
 
 #include <algorithm>
 #include <array>
@@ -67,9 +68,7 @@ constexpr Curated kCurated[]{
 };
 
 bool OnlineSessionActive() noexcept {
-    if (LocalOnlineServer::IsLocalServerRunning())
-        return true;
-    return Memory::Contains(0x8065AA84u, 1) && Memory::Read8(0x8065AA84u) == 2;
+    return OnlineSession::Active();
 }
 
 bool ParseNumber(std::string_view text, uint32_t& value) noexcept {

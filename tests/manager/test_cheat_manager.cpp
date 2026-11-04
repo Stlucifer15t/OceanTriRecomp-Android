@@ -192,12 +192,34 @@ int main() {
         Check(CustomCodes::EnabledIds().size() == 1, "failed import leaves custom selection untouched");
         Check(CheatManager::Queue(CheatManager::Action::ResetLatches), "queue latch reset");
         CheatManager::Pump();
-        Memory::Write8(0x8065AA84u, 2);
+        // Regression: system_w+0x24 (0x8065AA84) is the scene/game mode, where
+        // 2 means village. Offline Moga Village gameplay must not be treated as
+        // an online session just because that byte is 2.
+        Memory::Write8(0x8065AA84u, 2); // game mode: village
+        Memory::Write8(0x8065AA85u, 5); // play mode: offline village
+        Memory::Write8(0x8065B234u, 0); // city-choice flag clear
+        CheatManager::Pump();
+        Check(!CheatManager::GetSnapshot().online, "offline village game mode 2 is not an online session");
+        Check(CheatManager::Queue(CheatManager::Action::Master, 0, 1), "offline village allows master enable");
+        CheatManager::Pump();
+        Check(CheatManager::GetSnapshot().master, "offline village master ON");
+        Check(CheatManager::Queue(CheatManager::Action::Toggle, Index(Cheats::Id::InfiniteStamina), 1), "offline village allows cheat enable");
+        CheatManager::Pump();
+        Check(Cheats::On(Cheats::Id::InfiniteStamina), "offline village cheat is live");
+        Check(CheatManager::Queue(CheatManager::Action::Master, 0, 0), "turn master off before online guard test");
+        CheatManager::Pump();
+
+        Memory::Write8(0x8065AA85u, 4); // play mode: online/City
+        CheatManager::Pump();
+        Check(CheatManager::GetSnapshot().online, "online guard is mirrored for the touch UI");
         Check(CheatManager::Queue(CheatManager::Action::Master, 0, 1), "queue master during online session");
         CheatManager::Pump();
         Check(!CheatManager::GetSnapshot().master, "online session refuses master enable");
-        Check(CheatManager::GetSnapshot().online, "online guard is mirrored for the touch UI");
-        Memory::Write8(0x8065AA84u, 0);
+        Memory::Write8(0x8065AA85u, 5);
+        Memory::Write8(0x8065B234u, 1); // sticky City-choice flag still requires a clean relaunch
+        CheatManager::Pump();
+        Check(CheatManager::GetSnapshot().online, "city-choice flag gates until relaunch");
+        Memory::Write8(0x8065B234u, 0);
         CheatManager::Pump();
         Check(!CheatManager::GetSnapshot().online, "offline guard clears after returning offline");
 

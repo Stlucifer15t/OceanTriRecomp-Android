@@ -4,6 +4,7 @@
 #include "fs_status.h"
 #include "memory.h"
 #include "net/local_server.h"
+#include "net/online_session.h"
 
 #include <algorithm>
 #include <charconv>
@@ -471,11 +472,7 @@ void Pump() noexcept {
 }
 
 void Step(const CpuContext*) noexcept {
-    if (!Cheats::g_active.load(std::memory_order_relaxed) || LocalOnlineServer::IsLocalServerRunning())
-        return;
-    // The configured community server is not itself an online session; the
-    // guest's City/online mode byte and local hosting are the actual gates.
-    if (Memory::Contains(0x8065AA84u, 1) && Memory::Read8(0x8065AA84u) == 2)
+    if (!Cheats::g_active.load(std::memory_order_relaxed) || OnlineSession::Active())
         return;
     try {
         std::lock_guard lock(g_mutex);

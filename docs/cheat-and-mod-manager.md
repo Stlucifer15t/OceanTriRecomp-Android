@@ -159,6 +159,8 @@ CI:
 
 Device testing after the SDL fix showed two UX problems: taps on a cheat row’s text did nothing because only the small OFF button was hit-tested, and confirming a save-risk cheat left Master OFF, so the switch looked selected but native hooks remained gated. The touch UI now hit-tests the whole row, and enabling a native/custom cheat queues Master ON first when Master is OFF. The confirmation dialog says when Enable will turn Master ON. The game thread also mirrors the City/online guard into `CheatManager::Snapshot::online`; the Cheats tab shows an explicit online lock instead of silently refusing. Cheats remain intentionally unavailable in online/City mode; return offline and relaunch for a clean guard.
 
+A follow-up device report proved the first online guard was reading the wrong PAL byte. `system_w+0x24` (`0x8065AA84`) is the scene/game mode used by `StartGameModeTask`: `1` field, `2` village. Offline Moga Village gameplay therefore has value `2`, which the first guard incorrectly treated as online. `runtime/src/net/online_session.h` now gates on the play mode at `system_w+0x25` (`4` online/City, `5` offline village) plus the City-choice flag at `system_w+0x7D4`, and local hosting. Host tests cover the offline-village false positive, online play-mode refusal, and the sticky City flag.
+
 ### Android SDL startup contract
 
 A device log from the first manager APK showed `SIGABRT` inside `JNI_OnLoad` before `main()`: native SDL registered `SDLControllerManager.onNativePadDown(II)Z`, while the packaged Java glue declared `(III)Z`. The cause was packaging, not the cheat/mod UI: Aurora statically linked SDL 3.4.4 into `libmain.so`, while CI also copied a separate SDL 3.4.16 `libSDL3.so` from an old release and the Java sources were 3.4.16.
