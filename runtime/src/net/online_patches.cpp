@@ -16,6 +16,7 @@
 #include "online.h"
 
 #include "abi_bridge.h"
+#include "../cheats.h"
 #include "fatal.h"
 #include "guest_call.h"
 #include "launcher_cheats.h"
@@ -164,7 +165,9 @@ constexpr const char* kRefused[]{"Cheats are not allowed online,", "please don't
 } // namespace
 
 bool AdmitOnline() {
-    if (!LauncherCheats::EnabledCount())
+    // Sticky for the launch: disabling a cheat must not admit a hunter whose
+    // equipment, money or quest flags have already been changed.
+    if (!Cheats::g_used.load(std::memory_order_relaxed))
         return true;
 
     if (!refused.exchange(true))

@@ -138,7 +138,8 @@ extern "C" void func_80272E94(CpuContext* ctx);
 extern "C" void MH3_CheatPlayerItemUse(CpuContext* ctx) {
     static constexpr uint32_t kItemUses[]{0x80249120, 0x8024B9D8, 0x8024C858, 0x8024D6E0, 0x8024F210, 0x8024F5FC};
     const uint32_t from = ctx->lr;
-    const bool item = On(Id::InfiniteItems) && std::find(std::begin(kItemUses), std::end(kItemUses), from) != std::end(kItemUses);
+    const bool unlimited = On(Id::UnlimitedConsumables) && ctx->gpr[3] == Cheats::LocalPlayer();
+    const bool item = unlimited || (On(Id::InfiniteItems) && std::find(std::begin(kItemUses), std::end(kItemUses), from) != std::end(kItemUses));
     const bool ammo = On(Id::InfiniteAmmo) && from == 0x80287E5C;
 
     if ((item || ammo) && int32_t(ctx->gpr[5]) < 0)
@@ -955,6 +956,23 @@ extern "C" void MH3_CheatLoadUserData(CpuContext* ctx) {
 REGISTER_NATIVE_FUNCTION_AS(0x80049FE0, MH3_CheatLoadUserData, "CheatLoadUserData");
 
 namespace Cheats {
+
+void StepRequestedUnlocks(CpuContext* ctx) {
+    if (UserData() == 0 || (!g_requestItemFill && !g_requestEquipmentFill))
+        return;
+    // These are explicit actions, not frame-by-frame box overwrites. Wait for
+    // a loaded character (and equipment tables), then consume each request.
+    if (g_requestItemFill && On(Id::AllItems)) {
+        g_requestItemFill = false;
+        g_boxFilled = true;
+        FillItemBox(ctx);
+    }
+    if (g_requestEquipmentFill && On(Id::AllEquipment) && Memory::Read32(kEquipmentData) != 0) {
+        g_requestEquipmentFill = false;
+        g_equipmentFilled = true;
+        FillEquipmentBox(ctx);
+    }
+}
 
 // Language changer: the US code hooked the title menu to step the language
 // (system_w+9: 1 English, 2 French, 3 German, 4 Italian, 5 Spanish) with Y;

@@ -1,4 +1,5 @@
 #include "asset_cache.h"
+#include "mod_manager.h"
 #include "fatal.h"
 #include "fs_status.h"
 #include "disc_image.h"
@@ -1527,8 +1528,27 @@ struct Game {
     DiscImage image;
     std::unique_ptr<AssetCache> cache;
     explicit Game(const char* root) : image(root) {
-        if (!image.Packed() || image.HasNativeTextureMap() || std::getenv("MH3_NATIVE_ASSET_DIR"))
+        // Install read-only runtime overlays before any conversion/cache lookup.
+        // A nonempty selection gets its own hash-named cache; the original
+        // cache and disc files are never rewritten.
+        const std::filesystem::path originalRoot = root && *root ? root : ".";
+        const ModManager::DiscView discView{
+            image.HasNativeTextureMap(),
+            [this](const std::string& name) { return image.FileSizeOrZero(name); },
+            [this](const std::string& name) { return image.FileOffset(name); },
+        };
+        const auto cacheRoot = ModManager::PrepareDiscCache(discView, originalRoot);
+        if (!image.Packed() || image.HasNativeTextureMap() || std::getenv("MH3_NATIVE_ASSET_DIR")) {
+            if (ModManager::HasAppliedFiles()) {
+                image.SetReader([this](uint64_t offset, uint8_t* output, size_t length) {
+                    const auto status = image.ReadRaw(offset, output, length);
+                    if (status.ok())
+                        ModManager::OverlayRead(offset, output, length);
+                    return status;
+                });
+            }
             return;
+        }
 
         std::vector<AssetCache::SourceFile> sources;
 
@@ -1547,7 +1567,12 @@ struct Game {
         for (const auto& name : image.FileNames())
             if (name.rfind("16/srt/", 0) == 0)
                 streams.push_back({name, image.FileOffset(name), image.FileSize(name)});
-        cache = std::make_unique<AssetCache>(root, std::move(sources), std::move(streams), [this](uint64_t offset, uint8_t* output, size_t length) { return image.ReadRaw(offset, output, length); });
+        cache = std::make_unique<AssetCache>(cacheRoot, std::move(sources), std::move(streams), [this](uint64_t offset, uint8_t* output, size_t length) {
+            const auto status = image.ReadRaw(offset, output, length);
+            if (status.ok())
+                ModManager::OverlayRead(offset, output, length);
+            return status;
+        });
         image.SetReader([this](uint64_t offset, uint8_t* output, size_t length) { return cache->Read(offset, output, length); });
     }
 

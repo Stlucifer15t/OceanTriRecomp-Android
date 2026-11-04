@@ -9,6 +9,10 @@
 #include "net/local_server.h"
 #include "net/lan_beacon.h"
 #include "recomp_mod_loader.h"
+#include "cheat_manager.h"
+#include "custom_codes.h"
+#include "mod_manager.h"
+#include "launcher_cheats.h"
 #include "efb_host.h"
 
 #include <SDL3/SDL.h>
@@ -163,6 +167,17 @@ public:
     void SetMenuOpen(bool open) {
         m_menuOpen = open;
         NoteTouchActivity();
+        // Never carry a held gameplay button/stick into or out of the manager.
+        m_latchedMask.store(0, std::memory_order_relaxed);
+        m_cameraDeltaX.store(0.0f);
+        m_cameraDeltaY.store(0.0f);
+        m_leftFingerId = -1;
+        m_rightFingerId = -1;
+        m_rightStickActive = false;
+        m_leftX = m_leftY = m_rightX = m_rightY = 0;
+        m_leftStickPos = m_leftStickCenter;
+        for (auto& btn : m_buttons) { btn.isPressed = false; btn.fingerId = -1; }
+        if (!open) ManagerStopSearch();
         if (m_menuOpen) {
             SDL_ShowCursor();
             if (SDL_Window* win = aurora_get_window()) {
@@ -332,7 +347,7 @@ public:
         float gdy = py - m_gearPos.y;
         if (gdx * gdx + gdy * gdy <= (m_gearRadius * 1.8f) * (m_gearRadius * 1.8f)) {
             if (gearHidden) return;
-            m_menuOpen = true;
+            SetMenuOpen(true);
             m_menuTab = 0; // Gráficos
             return;
         }
@@ -493,10 +508,16 @@ public:
 
     void HandleMouseUp(float px, float py) {
         (void)px; (void)py;
+        if (m_menuOpen && m_menuTab >= 5) return;
         if (m_editMode) {
             m_editDragging = false;
             m_editFingerId = -1;
         }
+    }
+
+    void HandleMouseWheel(float wheelY) {
+        if (m_menuOpen && m_menuTab >= 5 && wheelY != 0.0f)
+            ManagerPage(wheelY > 0.0f ? -1 : 1);
     }
 
     void HandleMouseMove(float px, float py) {
@@ -649,6 +670,8 @@ public:
 
         InitGL();
         if (!m_shaderProgram) return;
+        ModManager::ApplyTextureSelection();
+        if (m_menuOpen && m_menuTab >= 5) RefreshManagerState();
 
         // Compute Live FPS
         const auto now = std::chrono::steady_clock::now();
@@ -1162,6 +1185,8 @@ private:
         return (m_menuLang == 1) ? en : es;
     }
 
+#include "touch_manager_ui.inc"
+
     void RenderSettingsMenu() {
         // Semi-transparent Scrim
         DrawRectSolid(0, 0, float(m_width), float(m_height), { 0.0f, 0.0f, 0.0f, 0.72f });
@@ -1186,8 +1211,8 @@ private:
         }
 
         // Header Title & Subtitle (Larger readable fonts)
-        const char* titles_es[] = { "Gráficos", "Sistema", "Guardados", "Controles", "Online" };
-        const char* titles_en[] = { "Graphics", "System", "Saves", "Controls", "Online" };
+        const char* titles_es[] = { "Gráficos", "Sistema", "Guardados", "Controles", "Online", "Trucos", "Mods" };
+        const char* titles_en[] = { "Graphics", "System", "Saves", "Controls", "Online", "Cheats", "Mods" };
         const char* const* titles = (m_menuLang == 1) ? titles_en : titles_es;
 
         const char* subtitles_es[] = {
@@ -1195,14 +1220,18 @@ private:
             "Idioma del menú, juego y reinicio",
             "Gestor de partidas Dolphin / Wii NAND",
             "Visibilidad en pantalla, mando gamepad y macros",
-            "Multijugador local, ZeroTier y servidores comunitarios"
+            "Multijugador local, ZeroTier y servidores comunitarios",
+            "Interruptores nativos y códigos Gecko mapeados (solo offline)",
+            "Paquetes de texturas, modelos y audio sin tocar el disco"
         };
         const char* subtitles_en[] = {
             "Display, resolution and presentation",
             "Menu language, game language and restart",
             "Dolphin / Wii NAND save file manager",
             "On-screen controls, gamepad and macros",
-            "Multiplayer, ZeroTier and community servers"
+            "Multiplayer, ZeroTier and community servers",
+            "Native switches and explicitly mapped Gecko writes (offline only)",
+            "Texture/model/audio packages; original disc files stay untouched"
         };
         const char* const* subtitles = (m_menuLang == 1) ? subtitles_en : subtitles_es;
         DrawText(padX + 24.0f, padY + 16.0f, titles[m_menuTab], 28.0f, COL_WHITE);
@@ -1229,15 +1258,15 @@ private:
 
         // Tab Navigation Bar
         float tabY = padY + 86.0f;
-        float tabW = (panW - 40.0f - 40.0f) / 5.0f;
+        float tabW = (panW - 40.0f - 48.0f) / 7.0f;
         float tabH = 44.0f;
-        for (int i = 0; i < 5; ++i) {
-            float tx = padX + 20.0f + float(i) * (tabW + 10.0f);
+        for (int i = 0; i < 7; ++i) {
+            float tx = padX + 20.0f + float(i) * (tabW + 8.0f);
             bool active = (m_menuTab == i);
             DrawRoundedRect(tx, tabY, tabW, tabH, 8.0f,
                             active ? COL_ACTIVE_CHIP : COL_INACTIVE_CHIP,
                             active ? COL_CYAN : COL_CHIP_BORDER);
-            DrawText(tx + tabW * 0.5f, tabY + 12.0f, titles[i], 16.5f,
+            DrawText(tx + tabW * 0.5f, tabY + 12.0f, titles[i], 14.5f,
                      active ? COL_ACTIVE_TEXT : COL_WHITE, true);
         }
 
@@ -1250,6 +1279,9 @@ private:
         else if (m_menuTab == 2) RenderTabSaves(padX + 20.0f, contentY, contentW);
         else if (m_menuTab == 3) RenderTabControls(padX + 20.0f, contentY, contentW);
         else if (m_menuTab == 4) RenderTabOnline(padX + 20.0f, contentY, contentW);
+        else if (m_menuTab == 5) RenderTabCheats(padX + 20.0f, contentY, contentW);
+        else if (m_menuTab == 6) RenderTabMods(padX + 20.0f, contentY, contentW);
+        if (m_confirmOpen) RenderManagerConfirm(padX, padY, panW, panH);
     }
 
     void RenderTabGraphics(float x, float y, float w) {
@@ -1804,23 +1836,25 @@ private:
         float closeY = padY + 18.0f;
         float closeS = 38.0f;
         if (px >= closeX && px <= closeX + closeS + 10.0f && py >= closeY && py <= closeY + closeS + 10.0f) {
-            m_menuOpen = false;
+            SetMenuOpen(false);
             return;
         }
         if (px < padX || px > padX + panW || py < padY || py > padY + panH) {
-            m_menuOpen = false;
+            SetMenuOpen(false);
             return;
         }
 
         // Tabs
         float tabY = padY + 86.0f;
-        float tabW = (panW - 40.0f - 40.0f) / 5.0f;
+        float tabW = (panW - 40.0f - 48.0f) / 7.0f;
         float tabH = 44.0f;
         if (py >= tabY && py <= tabY + tabH) {
-            for (int i = 0; i < 5; ++i) {
-                float tx = padX + 20.0f + float(i) * (tabW + 10.0f);
+            for (int i = 0; i < 7; ++i) {
+                float tx = padX + 20.0f + float(i) * (tabW + 8.0f);
                 if (px >= tx && px <= tx + tabW) {
                     m_menuTab = i;
+                    ManagerPageReset();
+                    if (m_menuTab < 5) ManagerStopSearch();
                     if (m_menuTab == 4) {
                         LanBeacon::StartScanner();
                         LanBeacon::TriggerScan();
@@ -1833,6 +1867,10 @@ private:
         float contentY = tabY + tabH + 16.0f;
         float contentW = panW - 40.0f;
         float x = padX + 20.0f;
+
+        if (m_confirmOpen) { HandleManagerConfirmTouch(px, py); return; }
+        if (m_menuTab == 5) { HandleCheatsTouch(px, py, x, contentY, contentW); return; }
+        if (m_menuTab == 6) { HandleModsTouch(px, py, x, contentY, contentW); return; }
 
         if (m_menuTab == 0) { // Gráficos
             float chipH = 38.0f;
@@ -2764,6 +2802,9 @@ void TouchControls_HandleSdlEvent(const void* sdlEvent) {
     }
 
     const SDL_Event* event = reinterpret_cast<const SDL_Event*>(sdlEvent);
+    if (g_touchSettingsEngine.HandleManagerSdlEvent(event)) {
+        return;
+    }
 
     switch (event->type) {
     case SDL_EVENT_KEY_DOWN: {
@@ -2791,6 +2832,9 @@ void TouchControls_HandleSdlEvent(const void* sdlEvent) {
         break;
     case SDL_EVENT_MOUSE_MOTION:
         g_touchSettingsEngine.HandleMouseMove(event->motion.x, event->motion.y);
+        break;
+    case SDL_EVENT_MOUSE_WHEEL:
+        g_touchSettingsEngine.HandleMouseWheel(event->wheel.y);
         break;
     case SDL_EVENT_FINGER_DOWN:
         if (AndroidKeyboard_ShouldBeActive() && event->tfinger.y < 0.65f) {

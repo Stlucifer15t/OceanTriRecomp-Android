@@ -12,6 +12,8 @@
 //     results or the fields they wrote.
 #pragma once
 
+#include <atomic>
+
 #include "abi_bridge.h"
 #include "memory.h"
 
@@ -290,15 +292,31 @@ enum class Id : uint16_t {
     WaistSkills,
     LegsSkills,
     ArmorSkillsOff,
+    // Live-manager action: unlike MaxAttackBase, needs no controller combo.
+    MaximumDamage,
+    UnlimitedConsumables,
     Count
 };
 
-// Set by the launcher (or --cheat) before the game starts.
+// Selected by the launcher/CLI or by CheatManager on the game thread.
+// Never write these arrays from the UI thread. Active gates every native hook,
+// including hooks which do not run through Step.
 extern bool g_on[size_t(Id::Count)];
 extern int32_t g_value[size_t(Id::Count)];
+extern std::atomic<bool> g_active;
+extern std::atomic<bool> g_used; // sticky for this launch, including master-off
+extern size_t g_enabledCount;
+extern bool g_requestItemFill;
+extern bool g_requestEquipmentFill;
+
+void SetActive(bool enabled);
+void ResetLatches();
+// Explicit live-manager actions. A one-shot box fill never runs on the UI thread.
+void RequestBoxFill(bool equipment);
+void StepRequestedUnlocks(CpuContext* ctx);
 
 inline bool On(Id id) {
-    return g_on[size_t(id)];
+    return g_active.load(std::memory_order_relaxed) && g_on[size_t(id)];
 }
 
 inline int32_t Value(Id id) {

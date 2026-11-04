@@ -1,5 +1,9 @@
 include_guard(GLOBAL)
 
+# Optional checksum for the vendored source archive, e.g. SHA256=<hex>.
+# Platform packaging may force this together with AURORA_SDL3_VERSION.
+set(AURORA_SDL3_URL_HASH "" CACHE STRING "Checksum for the vendored SDL3 source archive")
+
 # Resolve SDL3 dependency based on AURORA_SDL3_PROVIDER and AURORA_SDL3_LINKAGE.
 #
 # After this module runs, the variable AURORA_SDL3_TARGET is set to the
@@ -165,8 +169,13 @@ elseif (_aurora_sdl3_provider STREQUAL "vendor")
       aurora_sdl3_apply_patches("${FETCHCONTENT_SOURCE_DIR_SDL}")
     endif ()
 
+    set(_aurora_sdl3_hash_args)
+    if(AURORA_SDL3_URL_HASH)
+      list(APPEND _aurora_sdl3_hash_args URL_HASH "${AURORA_SDL3_URL_HASH}")
+    endif()
     FetchContent_Declare(SDL
       URL "https://github.com/libsdl-org/SDL/releases/download/release-${AURORA_SDL3_VERSION}/SDL3-${AURORA_SDL3_VERSION}.tar.gz"
+      ${_aurora_sdl3_hash_args}
       DOWNLOAD_EXTRACT_TIMESTAMP TRUE
       PATCH_COMMAND "${CMAKE_COMMAND}" -DSDL_SOURCE_DIR=<SOURCE_DIR> -P "${_aurora_sdl3_patches}"
       EXCLUDE_FROM_ALL

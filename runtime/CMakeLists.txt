@@ -191,8 +191,45 @@ endif()
 if(MH3_AURORA_ROOT)
   enable_language(C)
 
+  if(ANDROID)
+    # Android ships one SDL runtime, statically linked into libmain.so. Its JNI
+    # registration must match packaging/android/src/org/libsdl/app exactly.
+    # Do not mix this with a prebuilt libSDL3.so from an older release: SDL
+    # 3.4.4 registers onNativePadDown(II)Z, while the 3.4.16 Java glue declares
+    # (III)Z, which aborts in JNI_OnLoad before main() starts.
+    set(AURORA_SDL3_PROVIDER "vendor" CACHE STRING "" FORCE)
+    set(AURORA_SDL3_LINKAGE "static" CACHE STRING "" FORCE)
+    set(AURORA_SDL3_VERSION "3.4.16" CACHE STRING "" FORCE)
+    set(AURORA_SDL3_URL_HASH "SHA256=7322236cd12090c3eb40b9728be4d49c76f66ad17d04369584d4ecad5cf77c68" CACHE STRING "" FORCE)
+  endif()
+
   # The game thread owns the native renderer; GPU submissions are asynchronous.
   add_subdirectory("${MH3_AURORA_ROOT}" "${CMAKE_BINARY_DIR}/aurora")
+
+  if(ANDROID)
+    if(NOT TARGET SDL3-static OR TARGET SDL3-shared)
+      message(FATAL_ERROR "Android packaging requires exactly one static SDL3 target (SDL3-static, no SDL3-shared)")
+    endif()
+    include(FetchContent)
+    FetchContent_GetProperties(SDL)
+    if(NOT sdl_SOURCE_DIR OR NOT EXISTS "${sdl_SOURCE_DIR}/src/core/android/SDL_android.c")
+      message(FATAL_ERROR "Android SDL source tree was not provided by FetchContent")
+    endif()
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    execute_process(
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/verify_android_sdl.py"
+              --sdl-source "${sdl_SOURCE_DIR}"
+              --java-dir "${CMAKE_CURRENT_SOURCE_DIR}/../packaging/android/src/org/libsdl/app"
+              --app-java "${CMAKE_CURRENT_SOURCE_DIR}/../packaging/android/src/com/oceantri/mh3/OceanTriActivity.java"
+      RESULT_VARIABLE MH3_SDL_CONTRACT_RESULT
+      OUTPUT_VARIABLE MH3_SDL_CONTRACT_OUTPUT
+      ERROR_VARIABLE MH3_SDL_CONTRACT_ERROR
+    )
+    if(NOT MH3_SDL_CONTRACT_RESULT EQUAL 0)
+      message(FATAL_ERROR "Android SDL Java/native contract check failed:\n${MH3_SDL_CONTRACT_OUTPUT}${MH3_SDL_CONTRACT_ERROR}")
+    endif()
+    message(STATUS "${MH3_SDL_CONTRACT_OUTPUT}")
+  endif()
 endif()
 
 set(CMAKE_CXX_STANDARD 20)
@@ -292,7 +329,7 @@ target_sources(MH3 PRIVATE
   src/ppc_helpers.cpp src/fpu_helpers.cpp src/executable_guard.cpp src/rso_services.cpp src/wpad_services.cpp src/controller_host.cpp native/mh3_classic_map.c src/controller_tests.cpp src/village_boot.cpp src/audio_interface.cpp
   src/audio_tests.cpp src/audio_dma.cpp
   src/audio/native_audio_api.cpp src/audio/native_audio_frame.cpp src/audio/native_audio_mixer.cpp src/audio/native_audio_tests.cpp src/audio/sdk_mix.cpp src/audio/sdk_synseq.cpp src/audio/sound_engine.cpp src/audio/sound_stream.cpp
-  src/device_tests.cpp src/efb_host.cpp src/ios.cpp src/usb_hid_services.cpp src/android_keyboard.cpp src/disc_image.cpp src/video_interface.cpp src/gx_registers.cpp src/gx_stream.cpp src/gx_services.cpp src/vi_services.cpp src/glare_filter.cpp src/frame_pacer.cpp src/fps_timers.cpp src/game_frame.cpp src/frame_draw.cpp src/hud_draw.cpp src/mhchar_motion.cpp src/game_step.cpp src/effect_step.cpp src/guest_worker.cpp src/guest_threads.cpp src/net/online_patches.cpp src/net/online_close.cpp src/net/net_ctrl.cpp src/net/ios_net.cpp ${MH3_NET_HOST_SOURCE} src/effect_calc.cpp src/effect_objects.cpp src/effect_draw_order.cpp src/particle_manager_calc.cpp src/map_sound.cpp src/player_timers.cpp src/port_check.cpp src/pulse.cpp src/rumble_timers.cpp src/pad_input.cpp src/camera_input.cpp src/field_camera.cpp src/player_aim.cpp src/step_counter.cpp src/swing_effect.cpp src/stamina.cpp src/player_turn.cpp src/field_jump.cpp src/quest_placement.cpp src/monster_heaps.cpp src/save_data.cpp src/game_tasks.cpp src/field_frame.cpp src/draw_buckets.cpp src/player_health.cpp src/cheats.cpp src/cheat_data.cpp src/cheat_items.cpp src/cheat_monsters.cpp src/cheat_quest.cpp src/cheat_hunter.cpp src/cheat_movement.cpp src/tick_sites.cpp src/camera_script.cpp src/movie_draw.cpp src/reset_fade.cpp src/loading_screen.cpp src/load_progress.cpp src/quest_clock.cpp src/ambient_hover.cpp src/fish_effects.cpp src/group_shuttle.cpp src/hit_timers.cpp src/enemy_glide.cpp src/creature_fade.cpp src/ambient_flutter.cpp src/yure_chain.cpp src/audio_reverb.cpp src/anm_chr_keys.cpp src/anm_chr_blend.cpp src/anm_obj_chr_res.cpp src/effect_texture.cpp src/effect_billboard.cpp src/effect_particle.cpp src/msl_math.cpp src/texture_scroll.cpp src/ceadeus_intro.cpp src/demo_pose.cpp src/event_demo.cpp src/alatreon_actions.cpp src/screen_fade.cpp src/enemy_timers.cpp src/shell_motion.cpp src/enemy_turn.cpp src/npc_turn.cpp src/field_actor.cpp src/object_ages.cpp src/village_player_actions.cpp src/field_player_actions.cpp src/g3d_res.cpp src/g3d_calc_world.cpp src/scene_world.cpp src/mtx.cpp src/ef_anim_curve.cpp src/nw4r_accessors.cpp src/g3d_anm_result.cpp src/nw4r_math.cpp src/scn_mdl_tasks.cpp src/gather_spots.cpp src/mhchar_move.cpp src/field_lists.cpp src/res_anm_keys.cpp src/drawshape.cpp src/particle_mtx.cpp src/particle_initialize.cpp src/hunter_parts.cpp src/player_skill.cpp src/sound_shells.cpp src/enemy_hit_shapes.cpp src/enemy_conditions.cpp src/small_monsters.cpp src/ef_mtx_scale.cpp src/ef_resource.cpp src/msl_string.cpp src/debug_font.cpp src/prim_buffers.cpp src/monster_intros.cpp src/monster_roars.cpp src/monster_attacks.cpp src/monster_control.cpp src/enemy_actions.cpp src/monster_waits.cpp src/g3d_destroy.cpp
+  src/device_tests.cpp src/efb_host.cpp src/ios.cpp src/usb_hid_services.cpp src/android_keyboard.cpp src/disc_image.cpp src/video_interface.cpp src/gx_registers.cpp src/gx_stream.cpp src/gx_services.cpp src/vi_services.cpp src/glare_filter.cpp src/frame_pacer.cpp src/fps_timers.cpp src/game_frame.cpp src/frame_draw.cpp src/hud_draw.cpp src/mhchar_motion.cpp src/game_step.cpp src/effect_step.cpp src/guest_worker.cpp src/guest_threads.cpp src/net/online_patches.cpp src/net/online_close.cpp src/net/net_ctrl.cpp src/net/ios_net.cpp ${MH3_NET_HOST_SOURCE} src/effect_calc.cpp src/effect_objects.cpp src/effect_draw_order.cpp src/particle_manager_calc.cpp src/map_sound.cpp src/player_timers.cpp src/port_check.cpp src/pulse.cpp src/rumble_timers.cpp src/pad_input.cpp src/camera_input.cpp src/field_camera.cpp src/player_aim.cpp src/step_counter.cpp src/swing_effect.cpp src/stamina.cpp src/player_turn.cpp src/field_jump.cpp src/quest_placement.cpp src/monster_heaps.cpp src/save_data.cpp src/game_tasks.cpp src/field_frame.cpp src/draw_buckets.cpp src/player_health.cpp src/cheat_manager.cpp src/custom_codes.cpp src/mod_manager.cpp src/cheats.cpp src/cheat_data.cpp src/cheat_items.cpp src/cheat_monsters.cpp src/cheat_quest.cpp src/cheat_hunter.cpp src/cheat_movement.cpp src/tick_sites.cpp src/camera_script.cpp src/movie_draw.cpp src/reset_fade.cpp src/loading_screen.cpp src/load_progress.cpp src/quest_clock.cpp src/ambient_hover.cpp src/fish_effects.cpp src/group_shuttle.cpp src/hit_timers.cpp src/enemy_glide.cpp src/creature_fade.cpp src/ambient_flutter.cpp src/yure_chain.cpp src/audio_reverb.cpp src/anm_chr_keys.cpp src/anm_chr_blend.cpp src/anm_obj_chr_res.cpp src/effect_texture.cpp src/effect_billboard.cpp src/effect_particle.cpp src/msl_math.cpp src/texture_scroll.cpp src/ceadeus_intro.cpp src/demo_pose.cpp src/event_demo.cpp src/alatreon_actions.cpp src/screen_fade.cpp src/enemy_timers.cpp src/shell_motion.cpp src/enemy_turn.cpp src/npc_turn.cpp src/field_actor.cpp src/object_ages.cpp src/village_player_actions.cpp src/field_player_actions.cpp src/g3d_res.cpp src/g3d_calc_world.cpp src/scene_world.cpp src/mtx.cpp src/ef_anim_curve.cpp src/nw4r_accessors.cpp src/g3d_anm_result.cpp src/nw4r_math.cpp src/scn_mdl_tasks.cpp src/gather_spots.cpp src/mhchar_move.cpp src/field_lists.cpp src/res_anm_keys.cpp src/drawshape.cpp src/particle_mtx.cpp src/particle_initialize.cpp src/hunter_parts.cpp src/player_skill.cpp src/sound_shells.cpp src/enemy_hit_shapes.cpp src/enemy_conditions.cpp src/small_monsters.cpp src/ef_mtx_scale.cpp src/ef_resource.cpp src/msl_string.cpp src/debug_font.cpp src/prim_buffers.cpp src/monster_intros.cpp src/monster_roars.cpp src/monster_attacks.cpp src/monster_control.cpp src/enemy_actions.cpp src/monster_waits.cpp src/g3d_destroy.cpp
   src/dol_sections.cpp
   ../generated/rso_overlays/map_village.cpp ../generated/rso_overlays/quest_field.cpp ../generated/rso_overlays/enemy_field.cpp ../generated/rso_overlays/map01_field.cpp ../generated/rso_overlays/map00_field.cpp ../generated/rso_overlays/map02_field.cpp ../generated/rso_overlays/map03_field.cpp ../generated/rso_overlays/map04_field.cpp ../generated/rso_overlays/map05_field.cpp ../generated/rso_overlays/map06_field.cpp ../generated/rso_overlays/map07_field.cpp ../generated/rso_overlays/map08_field.cpp ../generated/rso_overlays/map09_field.cpp ../generated/rso_overlays/map10_field.cpp ../generated/rso_overlays/map11_field.cpp ../generated/rso_overlays/net_data.cpp ../generated/rso_overlays/map_town_online.cpp ../generated/rso_overlays/map_town_quest.cpp
   ${MKW_BASE_COMMON_SHARDS} ${MKW_BASE_PORTABLE_SENSITIVE_SHARDS}

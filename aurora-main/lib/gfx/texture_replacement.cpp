@@ -72,6 +72,7 @@ std::array<TlutMetadata, MaxTluts> s_loadedTluts{};
 std::list<RuntimeTextureKey> s_replacementLru;
 std::filesystem::path s_replacementRoot;
 std::filesystem::path s_dumpRoot;
+std::vector<std::filesystem::path> s_managedRoots;
 uint64_t s_replacementCacheBytes = 0;
 constexpr uint64_t kReplacementCacheBudgetBytes = 4294967296; // 4GB, reasonable for modern hardware?
 constexpr uint64_t kReplacementWildcardTextureHash = 0xFFFFFFFFFFFFFFFFull;
@@ -552,6 +553,11 @@ void build_index() noexcept {
   }
 
   std::vector<std::filesystem::path> scanDirs;
+  // Managed packages are first-wins by explicit priority. With no managed
+  // roots this list is identical to the previous behavior.
+  for (const auto& root : s_managedRoots) {
+    scanDirs.push_back(root);
+  }
   scanDirs.push_back(s_replacementRoot);
 
   if (const char* envDir = std::getenv("MH3_TEXTURE_DIR")) {
@@ -728,6 +734,7 @@ void shutdown() noexcept {
   s_replacementLru.clear();
   s_replacementCacheBytes = 0;
   s_replacementRoot.clear();
+  s_managedRoots.clear();
   s_dumpRoot.clear();
 }
 
@@ -900,6 +907,10 @@ void set_enabled(bool enabled) noexcept {
 
 bool is_enabled() noexcept {
   return g_config.allowTextureReplacements;
+}
+
+void set_managed_roots(std::vector<std::filesystem::path> roots) noexcept {
+  s_managedRoots = std::move(roots);
 }
 
 void reload() noexcept {

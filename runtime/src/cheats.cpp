@@ -23,8 +23,14 @@ namespace Cheats {
 
 bool g_on[size_t(Id::Count)];
 int32_t g_value[size_t(Id::Count)];
+std::atomic<bool> g_active{true}; // preserves existing CLI/launcher behavior
+std::atomic<bool> g_used{false};
+size_t g_enabledCount = 0;
+bool g_requestItemFill = false;
+bool g_requestEquipmentFill = false;
 
 namespace {
+bool g_toggled[size_t(Id::Count)];
 
 using LauncherCheats::Cheat;
 using LauncherCheats::Option;
@@ -422,6 +428,8 @@ constexpr Entry kEntries[]{
     {Id::WaistSkills, {kDoudley, "Activate armor skills for all waist", "Every waist armor gives 250 points of the picked skill (its number); on before the quest starts.", {}, {1, 127}}},
     {Id::LegsSkills, {kDoudley, "Activate armor skills for all legs", "Every legs armor gives 250 points of the picked skill (its number); on before the quest starts.", {}, {1, 127}}},
     {Id::ArmorSkillsOff, {kDoudley, "Deactivate armor skills codes (turn off)", "The buttons switch the five codes above off (the armor's own skills back) and on again.", kActivators}},
+    {Id::MaximumDamage, {kBasic, "Maximum damage", "Weapon attack reads as 32767 while enabled; no buttons or permanent weapon edit required."}},
+    {Id::UnlimitedConsumables, {kBasic, "Unlimited consumables", "The local hunter's item-use calls do not subtract pouch items while enabled."}},
 };
 
 static_assert(std::size(kEntries) == size_t(Id::Count));
@@ -465,13 +473,14 @@ int32_t ValueOf(size_t index, size_t choice) {
     return 0;
 }
 
-// The launcher's two toggles also switch their ports' flags.
+// These two ordinary gameplay ports have their own flags. Always derive
+// them from effective enablement, including the manager's master switch.
 void Apply(size_t index) {
     if (Id(index) == Id::NoDamage)
-        PlayerHealth::SetNoDamage(g_on[index]);
+        PlayerHealth::SetNoDamage(On(Id(index)));
 
     if (Id(index) == Id::NoStaminaDrain)
-        LauncherCheats::SetNoStaminaDrain(g_on[index]);
+        LauncherCheats::SetNoStaminaDrain(On(Id(index)));
 }
 
 struct Defaults {
@@ -519,8 +528,6 @@ uint32_t LocalPlayer() {
 }
 
 namespace {
-bool g_toggled[size_t(Id::Count)];
-
 // The cheats switched by their buttons (or always on with "Always").
 constexpr Id kToggles[]{Id::HealthNeverChanges, Id::SuperSpeed, Id::FreeFly, Id::ItemsGet10, Id::FreezeUnfreezeMonsters, Id::OneHitKills, Id::EnemyOneHp, Id::CantGather, Id::CantLeaveArea, Id::WalkThroughWalls, Id::PassThroughMonsters, Id::ArmorSkillsOff};
 } // namespace
@@ -559,17 +566,34 @@ void ConsumePresses() {
         Memory::Write16(kPsw + offset, 0);
 }
 
-void Step(CpuContext*) {
-    static const bool any = [] {
-        for (size_t i = 0; i < size_t(Id::Count); ++i)
-            if (g_on[i] && Id(i) != Id::NoDamage && Id(i) != Id::NoStaminaDrain && Id(i) != Id::AllItems && Id(i) != Id::AllEquipment)
-                return true;
-        return false;
-    }();
+void ResetLatches() {
+    for (bool& toggled : g_toggled)
+        toggled = false;
+}
 
-    if (!any)
+void SetActive(bool enabled) {
+    g_active.store(enabled, std::memory_order_relaxed);
+    if (enabled && g_enabledCount != 0)
+        g_used.store(true, std::memory_order_relaxed);
+    ResetLatches();
+    Apply(size_t(Id::NoDamage));
+    Apply(size_t(Id::NoStaminaDrain));
+}
+
+void RequestBoxFill(bool equipment) {
+    if (equipment)
+        g_requestEquipmentFill = true;
+    else
+        g_requestItemFill = true;
+}
+
+void Step(CpuContext* ctx) {
+    // This used to be a first-use static. A live manager can enable the first
+    // per-step code long after boot, so it must never cache that decision.
+    if (!g_active.load(std::memory_order_relaxed) || g_enabledCount == 0)
         return;
 
+    StepRequestedUnlocks(ctx);
     for (const Id id : kToggles)
         if (On(id) && Combo(uint16_t(Value(id))))
             g_toggled[size_t(id)] = !g_toggled[size_t(id)];
@@ -611,7 +635,19 @@ bool Enabled(size_t cheat) {
 }
 
 void Enable(size_t cheat, bool enabled) {
+    if (cheat >= kList.size() || g_on[cheat] == enabled)
+        return;
     g_on[cheat] = enabled;
+    g_enabledCount += enabled ? 1 : -1;
+    g_toggled[cheat] = false;
+    if (enabled) {
+        if (g_active.load(std::memory_order_relaxed))
+            g_used.store(true, std::memory_order_relaxed);
+        if (Id(cheat) == Id::AllItems)
+            RequestBoxFill(false);
+        if (Id(cheat) == Id::AllEquipment)
+            RequestBoxFill(true);
+    }
     Apply(cheat);
 }
 
@@ -675,12 +711,7 @@ bool SetText(size_t cheat, std::string_view text) {
 }
 
 size_t EnabledCount() {
-    size_t count = 0;
-
-    for (bool on : g_on)
-        count += on;
-
-    return count;
+    return g_enabledCount;
 }
 
 namespace {

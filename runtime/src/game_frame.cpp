@@ -12,7 +12,10 @@
 // The phase byte (0x8065AA83) records how far the frame got (1 started,
 // 2 logic, 3 draw, 4 done).
 #include "abi_bridge.h"
+#include "cheat_manager.h"
 #include "cheats.h"
+#include "custom_codes.h"
+#include "mod_manager.h"
 #include "monster_control.h"
 #include "fatal.h"
 #include "frame_split.h"
@@ -680,7 +683,10 @@ extern "C" void MH3_GameFrame(CpuContext* ctx) {
 #endif
         GameTasks::SkipStrapScreen();
         StepVillageBoot(ctx);
+        CheatManager::Pump();
+        ModManager::Pump();
         Cheats::Step(ctx);
+        CustomCodes::Step(ctx);
         MonsterControl::Step(ctx);
 #if defined(MH3_DEVELOPMENT) && !defined(__vita__)
         DebugPort::Step(ctx);

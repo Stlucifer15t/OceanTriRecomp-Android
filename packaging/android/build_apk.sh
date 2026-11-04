@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
@@ -76,19 +76,21 @@ if [ ! -f "${PNG_SO}" ]; then
     PNG_SO="$(find "${PROJECT_ROOT}/build-android" -name "libpng16.so" 2>/dev/null | head -n1)"
 fi
 cp "${PNG_SO}" "${BUILD_DIR}/apk_root/lib/arm64-v8a/libpng16.so"
-SDL3_SO="${PROJECT_ROOT}/packaging/android/libs/arm64-v8a/libSDL3.so"
-if [ ! -f "${SDL3_SO}" ] && [ -f "/var/mnt/juegos_sdb2/MHFU/out/release-android-mhfu/deps/sdl3-install/lib/libSDL3.so" ]; then
-    SDL3_SO="/var/mnt/juegos_sdb2/MHFU/out/release-android-mhfu/deps/sdl3-install/lib/libSDL3.so"
-fi
-cp "${SDL3_SO}" "${BUILD_DIR}/apk_root/lib/arm64-v8a/libSDL3.so"
+# SDL is statically linked into libmain.so by runtime/CMakeLists.txt. Do not
+# package or load a separate libSDL3.so: a second SDL runtime can register a
+# different JNI ABI than the Java glue and abort during System.loadLibrary.
 
 "${NDK_STRIP}" --strip-all "${BUILD_DIR}/apk_root/lib/arm64-v8a/libmain.so"
 "${NDK_STRIP}" --strip-all "${BUILD_DIR}/apk_root/lib/arm64-v8a/libpng16.so"
-"${NDK_STRIP}" --strip-all "${BUILD_DIR}/apk_root/lib/arm64-v8a/libSDL3.so"
 
 echo "=== 7. Adding Native Libraries to APK ==="
 cd "${BUILD_DIR}/apk_root"
-jar -uf "${BUILD_DIR}/base.apk" lib/arm64-v8a/libmain.so lib/arm64-v8a/libpng16.so lib/arm64-v8a/libSDL3.so
+jar -uf "${BUILD_DIR}/base.apk" lib/arm64-v8a/libmain.so lib/arm64-v8a/libpng16.so
+
+echo "=== 7b. Verifying SDL packaging contract ==="
+python3 "${PROJECT_ROOT}/scripts/verify_android_sdl.py" \
+    --app-java "${SRC_DIR}/com/oceantri/mh3/OceanTriActivity.java" \
+    --apk "${BUILD_DIR}/base.apk"
 
 echo "=== 8. Aligning APK (16KB page alignment) ==="
 cd "${BUILD_DIR}"

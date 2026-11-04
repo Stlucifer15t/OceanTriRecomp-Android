@@ -93,6 +93,11 @@ extern "C" void MH3_MonsterHealthAdd(CpuContext* ctx) {
 
     if (int32_t(Memory::Read32(monster + kHealth)) < floor)
         Memory::Write32(monster + kHealth, uint32_t(floor));
+
+    // A damaging hit also bypasses a capture phase's floor. Healing and the
+    // original capture-friendly EnemyOneHp behavior remain unchanged.
+    if (Toggled(Id::OneHitKills) && change < 0 && health > 0)
+        Memory::Write32(monster + kHealth, 0);
 }
 
 REGISTER_NATIVE_FUNCTION_AS(0x8011E6BC, MH3_MonsterHealthAdd, "MonsterHealthAdd");

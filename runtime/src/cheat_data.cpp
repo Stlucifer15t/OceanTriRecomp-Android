@@ -95,7 +95,7 @@ enum : uint32_t {
     kNaturalRecovery = 0x45E,
     kColdDrink = 0x464,    // u16 timers
     kHotDrink = 0x466,
-    kSharpness = 0x568,    // u8 level, u8, u16
+    kSharpness = 0x56C,    // s16 current, s16 maximum (color levels at 0x568)
     kGesture = 0x5C8,      // u8
     kFelyneSkills = 0x612, // u16[4]
     kSkinTone = 0xB1C,     // u16
@@ -537,6 +537,11 @@ void StepStatus(uint32_t plw) {
 
     if (On(Id::DefenseMax))
         WriteF32(plw + kDefense, 255.0f);
+
+    // Restore immediately when the live-manager toggle is enabled, not only
+    // on the next sharpness-changing hit. Keep the weapon's own color/cap.
+    if (On(Id::WeaponsSharp))
+        Memory::Write16(plw + kSharpness, Memory::Read16(plw + kSharpness + 2));
 
     // Seth's online codes wrote the online layout's player work
     // (0x9014AE80); here the local player's, wherever it is.
