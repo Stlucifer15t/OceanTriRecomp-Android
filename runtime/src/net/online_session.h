@@ -1,7 +1,7 @@
 #pragma once
 
 #include "memory.h"
-#include "net/local_server.h"
+#include "local_server.h"
 
 #include <cstdint>
 
