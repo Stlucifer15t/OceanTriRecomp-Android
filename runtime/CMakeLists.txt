@@ -191,8 +191,45 @@ endif()
 if(MH3_AURORA_ROOT)
   enable_language(C)
 
+  if(ANDROID)
+    # Android ships one SDL runtime, statically linked into libmain.so. Its JNI
+    # registration must match packaging/android/src/org/libsdl/app exactly.
+    # Do not mix this with a prebuilt libSDL3.so from an older release: SDL
+    # 3.4.4 registers onNativePadDown(II)Z, while the 3.4.16 Java glue declares
+    # (III)Z, which aborts in JNI_OnLoad before main() starts.
+    set(AURORA_SDL3_PROVIDER "vendor" CACHE STRING "" FORCE)
+    set(AURORA_SDL3_LINKAGE "static" CACHE STRING "" FORCE)
+    set(AURORA_SDL3_VERSION "3.4.16" CACHE STRING "" FORCE)
+    set(AURORA_SDL3_URL_HASH "SHA256=7322236cd12090c3eb40b9728be4d49c76f66ad17d04369584d4ecad5cf77c68" CACHE STRING "" FORCE)
+  endif()
+
   # The game thread owns the native renderer; GPU submissions are asynchronous.
   add_subdirectory("${MH3_AURORA_ROOT}" "${CMAKE_BINARY_DIR}/aurora")
+
+  if(ANDROID)
+    if(NOT TARGET SDL3-static OR TARGET SDL3-shared)
+      message(FATAL_ERROR "Android packaging requires exactly one static SDL3 target (SDL3-static, no SDL3-shared)")
+    endif()
+    include(FetchContent)
+    FetchContent_GetProperties(SDL)
+    if(NOT sdl_SOURCE_DIR OR NOT EXISTS "${sdl_SOURCE_DIR}/src/core/android/SDL_android.c")
+      message(FATAL_ERROR "Android SDL source tree was not provided by FetchContent")
+    endif()
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    execute_process(
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/verify_android_sdl.py"
+              --sdl-source "${sdl_SOURCE_DIR}"
+              --java-dir "${CMAKE_CURRENT_SOURCE_DIR}/../packaging/android/src/org/libsdl/app"
+              --app-java "${CMAKE_CURRENT_SOURCE_DIR}/../packaging/android/src/com/oceantri/mh3/OceanTriActivity.java"
+      RESULT_VARIABLE MH3_SDL_CONTRACT_RESULT
+      OUTPUT_VARIABLE MH3_SDL_CONTRACT_OUTPUT
+      ERROR_VARIABLE MH3_SDL_CONTRACT_ERROR
+    )
+    if(NOT MH3_SDL_CONTRACT_RESULT EQUAL 0)
+      message(FATAL_ERROR "Android SDL Java/native contract check failed:\n${MH3_SDL_CONTRACT_OUTPUT}${MH3_SDL_CONTRACT_ERROR}")
+    endif()
+    message(STATUS "${MH3_SDL_CONTRACT_OUTPUT}")
+  endif()
 endif()
 
 set(CMAKE_CXX_STANDARD 20)

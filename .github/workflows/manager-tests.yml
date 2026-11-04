@@ -33,3 +33,6 @@ jobs:
 
       - name: Run manager tests
         run: ctest --test-dir build-manager/tests --output-on-failure
+
+      - name: Run Android SDL packaging regressions
+        run: python3 -m unittest discover -s tests/android -p 'test_*.py' -v

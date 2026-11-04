@@ -76,9 +76,10 @@ public class OceanTriActivity extends SDLActivity {
 
     @Override
     protected String[] getLibraries() {
+        // SDL is statically linked into libmain.so. Loading a second, prebuilt
+        // libSDL3.so here can register a different JNI ABI and abort on launch.
         return new String[] {
             "png16",
-            "SDL3",
             "main"
         };
     }

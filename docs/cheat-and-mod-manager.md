@@ -155,6 +155,12 @@ CI:
 - `.github/workflows/manager-tests.yml` runs the isolated host suites on pushes and PRs.
 - `.github/workflows/build-apk.yml` now also runs on `arena/**` pushes and PRs to `main`, runs the host suites, builds the ARM64 APK, and uploads an artifact. Release publication remains restricted to pushes on `main`.
 
+### Android SDL startup contract
+
+A device log from the first manager APK showed `SIGABRT` inside `JNI_OnLoad` before `main()`: native SDL registered `SDLControllerManager.onNativePadDown(II)Z`, while the packaged Java glue declared `(III)Z`. The cause was packaging, not the cheat/mod UI: Aurora statically linked SDL 3.4.4 into `libmain.so`, while CI also copied a separate SDL 3.4.16 `libSDL3.so` from an old release and the Java sources were 3.4.16.
+
+Android now uses exactly one SDL runtime: vendored SDL 3.4.16, statically linked into `libmain.so`, with a pinned source-archive SHA-256. The redundant prebuilt `libSDL3.so` is no longer downloaded, packaged, or loaded. `scripts/verify_android_sdl.py` runs during Android CMake configuration and compares the native `SDL_android.c` JNI registration tables against the vendored Java native declarations; it also checks version constants and rejects a separate `libSDL3.so` load/APK entry. `tests/android` contains regression tests for the exact two-argument vs three-argument pad-callback mismatch.
+
 ## Remaining device acceptance gates
 
 - Playtest each curated cheat in a real hunt, including area transitions, equipment stat refresh, capture/kill behavior, and save/reload.

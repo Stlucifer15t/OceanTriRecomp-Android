@@ -30,6 +30,7 @@ jobs:
             -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Debug
           cmake --build build-manager/tests --parallel 2
           ctest --test-dir build-manager/tests --output-on-failure
+          python3 -m unittest discover -s tests/android -p 'test_*.py' -v
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -51,13 +52,6 @@ jobs:
       - name: Build Translator CLI
         run: |
           dotnet build toolchain/translator/src/Translator.Cli/Translator.Cli.csproj -c Release
-
-      - name: Fetch prebuilt libSDL3.so
-        run: |
-          mkdir -p packaging/android/libs/arm64-v8a
-          curl -L -s -o base_v1.5.apk https://github.com/Kiridor123/OceanTriRecomp-Android/releases/download/v1.5/OceanTriRecomp-Android-v1.5-arm64.apk
-          unzip -p base_v1.5.apk lib/arm64-v8a/libSDL3.so > packaging/android/libs/arm64-v8a/libSDL3.so
-          rm -f base_v1.5.apk
 
       - name: Build OpenSSL for Android ARM64
         run: |
