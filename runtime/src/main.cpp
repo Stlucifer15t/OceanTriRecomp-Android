@@ -1273,10 +1273,20 @@ int main(int argc, char** argv) {
 
         {
             const char* userDir = std::getenv("MH3_USER_DIR");
-            const auto cheatStatus = CheatManager::Initialize(userDir && *userDir ? std::filesystem::path(userDir) : std::filesystem::path("."));
+            const std::filesystem::path managerRoot = userDir && *userDir ? std::filesystem::path(userDir) : std::filesystem::path(".");
+#if defined(__ANDROID__)
+            __android_log_print(ANDROID_LOG_INFO, "MH3", "Manager init: cheat manager begin");
+#endif
+            const auto cheatStatus = CheatManager::Initialize(managerRoot);
             if (!cheatStatus.ok)
                 std::fprintf(stderr, "MH3 cheat manager: %s\n", cheatStatus.message.c_str());
-            ModManager::Initialize(userDir && *userDir ? std::filesystem::path(userDir) : std::filesystem::path("."));
+#if defined(__ANDROID__)
+            __android_log_print(ANDROID_LOG_INFO, "MH3", "Manager init: mod manager begin");
+#endif
+            ModManager::Initialize(managerRoot);
+#if defined(__ANDROID__)
+            __android_log_print(ANDROID_LOG_INFO, "MH3", "Manager init: ready");
+#endif
         }
 
         Memory::Init(24 * 1024 * 1024);

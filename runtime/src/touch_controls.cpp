@@ -668,9 +668,9 @@ public:
         } catch (...) {}
 #endif
 
-        ModManager::ApplyTextureSelection();
         InitGL();
         if (!m_shaderProgram) return;
+        ModManager::ApplyTextureSelection();
         if (m_menuOpen && m_menuTab >= 5) RefreshManagerState();
 
         // Compute Live FPS

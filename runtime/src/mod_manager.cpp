@@ -617,12 +617,21 @@ uint64_t TextureRevision() noexcept { return g_textureRevision.load(std::memory_
 void ApplyTextureSelection() noexcept {
 #if defined(MH3_HAS_AURORA)
     static uint64_t applied = UINT64_MAX;
+    static bool hadManagedRoots = false;
     const auto revision = TextureRevision();
     if (revision == applied)
         return;
     auto roots = TextureRoots();
+    const bool hasManagedRoots = !roots.empty();
+    // With no managed packages, do not touch Aurora's replacement index at
+    // startup. The legacy fixed-root behavior must remain exactly as before.
+    if (!hasManagedRoots && !hadManagedRoots) {
+        applied = revision;
+        return;
+    }
     aurora::gfx::texture_replacement::set_managed_roots(std::move(roots));
     aurora::gfx::texture_replacement::reload();
+    hadManagedRoots = hasManagedRoots;
     applied = revision;
 #endif
 }
