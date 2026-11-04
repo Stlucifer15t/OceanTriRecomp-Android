@@ -102,21 +102,36 @@ jobs:
           path: release/OceanTriRecomp-Android-v1.5.5-test-arm64.apk
           if-no-files-found: error
 
-      - name: Publish Pre-Release on GitHub
+      - name: Publish GitHub Release APK
         uses: softprops/action-gh-release@v2
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           tag_name: v1.5.5-test
-          name: "OceanTriRecomp Android v1.5.5 Test (Telemetry Logger)"
+          name: "OceanTriRecomp Android v1.5.5-test"
           body: |
             ## OceanTriRecomp Android v1.5.5-test 🦖📱
 
-            Esta versión de prueba incluye telemetría integrada para diagnosticar el fallo de físicas y teletransporte en el Bosque Inundado y el atajo del campamento en *"Sin amor por el ludroth"*.
+            Android ARM64 test build (`versionCode=10`, `versionName=1.5.5-test`).
 
-            ### 📝 Registros generados
-            - Ubicación del log en el dispositivo: `/storage/emulated/0/MH3/logs/hunter_telemetry.log`
-            - Registro automático de anomalías `[TELEPORT DETECTED]` y `[WALKING ON WATER]`.
+            ### Added
+            - Offline **Cheat Manager** with curated native cheats, save-risk confirmations, profile import/export, Master/all-OFF/reset/repeat controls, and whole-row touch activation.
+            - Strict mapped custom RAM-write codes (Gecko-style `00`/`02`/`04` writes only; unsafe code types rejected).
+            - Package-based **Mod Manager** with SHA-256 validation, live HD texture activation, next-launch model/audio replacements, priority handling, and isolated mod caches.
+            - English README and expanded cheat/mod documentation.
+
+            ### Fixed
+            - Android startup abort caused by mismatched SDL JNI runtimes. The APK now uses one vendored SDL 3.4.16 static runtime in `libmain.so`.
+            - False “online session” cheat lock in offline village gameplay.
+            - Cheat rows that only responded on the small toggle button and confirmations that left Master OFF.
+
+            ### Notes
+            - PAL `RMHP08` is the supported disc for runtime manager features.
+            - Cheats can modify save data. Back up `/storage/emulated/0/MH3` before experimenting.
+            - Cheats remain blocked in online/City sessions; return offline and relaunch for a clean guard.
+            - CI builds may use an ephemeral signing key. If an update fails, back up your data, uninstall the previous CI APK, and reinstall.
           files: release/OceanTriRecomp-Android-v1.5.5-test-arm64.apk
+          fail_on_unmatched_files: true
+          overwrite_files: true
           prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

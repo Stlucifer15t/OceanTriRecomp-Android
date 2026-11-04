@@ -1,186 +1,277 @@
 # OceanTriRecomp Android 🦖📱
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Platform: Android](https://img.shields.io/badge/Platform-Android%20ARM64-green.svg)](https://github.com/Kiridor123/OceanTriRecomp-Android)
-[![Latest Release](https://img.shields.io/badge/Release-v1.5-brightgreen.svg)](https://github.com/Kiridor123/OceanTriRecomp-Android/releases)
+[![Platform: Android](https://img.shields.io/badge/Platform-Android%20ARM64-green.svg)](https://github.com/Stlucifer15t/OceanTriRecomp-Android)
+[![Latest Release](https://img.shields.io/github/v/release/Stlucifer15t/OceanTriRecomp-Android?include_prereleases&sort=semver)](https://github.com/Stlucifer15t/OceanTriRecomp-Android/releases)
 
-Port nativo para **Android** de **Monster Hunter Tri** mediante recompilación estática de código (AOT - *Ahead-of-Time*), logrando rendimiento nativo en hardware ARM64 sin necesidad de emulación pesada.
+Native **Android** port of **Monster Hunter Tri** using static ahead-of-time (AOT) recompilation. PowerPC game code is translated to C++ and compiled for ARM64, giving native performance without heavyweight emulation.
+
+This repository is an Android-focused fork of [Kiridor123/OceanTriRecomp-Android](https://github.com/Kiridor123/OceanTriRecomp-Android), which builds on [krisztsa/OceanTriRecomp](https://github.com/krisztsa/OceanTriRecomp). It adds an offline **Cheat Manager**, a package-based **Mod Manager**, touch UI improvements, and Android startup/input fixes.
 
 ---
 
-## 🙏 Reconocimientos y Proyectos Base
+## 🙏 Credits and Base Projects
 
-Este proyecto se construye directamente sobre el trabajo de otros desarrolladores. Con total transparencia, estos son los proyectos y autores cuyos aportes hicieron posible este port:
+This project exists because of the work of other developers. Full credit goes to the projects and authors below.
 
-### Proyecto Base: OceanTriRecomp
+### Base Project: OceanTriRecomp
 
-> **Fork directo de [krisztsa/OceanTriRecomp](https://github.com/krisztsa/OceanTriRecomp)**
+> **Direct foundation: [krisztsa/OceanTriRecomp](https://github.com/krisztsa/OceanTriRecomp)**
 >
-> Todo el mérito por la arquitectura de recompilación estática PowerPC → C++, el renderizador moderno con Aurora HAL, y el runtime nativo pertenece a **[krisztsa](https://github.com/krisztsa)**. Este repositorio adapta y extiende su trabajo para Android ARM64.
+> The PowerPC → C++ static recompilation architecture, the modern Aurora HAL renderer, and the native runtime were created by **[krisztsa](https://github.com/krisztsa)**. This repository adapts and extends that work for Android ARM64.
 
-### Servidor Online: MH3SP (Monster Hunter 3 Server Project)
+### Android Upstream: Kiridor123/OceanTriRecomp-Android
 
-> El modo online (Ciudad Loc Lac) utiliza una implementación de servidor derivada de **[sepalani/MH3SP](https://github.com/sepalani/MH3SP)**, creado por **[Sepalani](https://github.com/sepalani)**.
+> This repository is forked from **[Kiridor123/OceanTriRecomp-Android](https://github.com/Kiridor123/OceanTriRecomp-Android)**, which provides the Android packaging, touch controls, online integration, and many device-specific fixes.
+
+### Online Server: MH3SP (Monster Hunter 3 Server Project)
+
+> Online mode (Loc Lac City) uses a server implementation derived from **[sepalani/MH3SP](https://github.com/sepalani/MH3SP)**, created by **[Sepalani](https://github.com/sepalani)**.
 >
-> - **Repositorio del servidor**: [sepalani/MH3SP](https://github.com/sepalani/MH3SP) — Licencia AGPL-3.0
-> - **Parches de cliente**: [sepalani/MH3SP-patcher](https://github.com/sepalani/MH3SP-patcher)
+> - **Server repository**: [sepalani/MH3SP](https://github.com/sepalani/MH3SP) — AGPL-3.0
+> - **Client patches**: [sepalani/MH3SP-patcher](https://github.com/sepalani/MH3SP-patcher)
 >
-> El archivo [`mh3sp_native_server.cpp`](runtime/src/mh3sp_native_server.cpp) es una adaptación nativa en C++ del servidor Python original de MH3SP. El código derivado se distribuye bajo la misma licencia AGPL-3.0 del proyecto original, como se indica en sus cabeceras. La conexión online por defecto apunta al servidor comunitario `mh3sp.com`.
+> [`mh3sp_native_server.cpp`](runtime/src/mh3sp_native_server.cpp) is a native C++ adaptation of the original Python MH3SP server. Derived code remains under the original AGPL-3.0 license, as noted in its headers. The default online connection points to the community server `mh3sp.com`.
 
-### Toolchain de Recompilación: WiiCompiled
+### Recompilation Toolchain: WiiCompiled
 
-> El traductor estático PowerPC → C++ y el ABI bridge provienen de **WiiCompiled** (commit `85f250155f`).
-> Consultar [`toolchain/ORIGIN.md`](toolchain/ORIGIN.md) y [`toolchain/THIRD-PARTY-NOTICES.md`](toolchain/THIRD-PARTY-NOTICES.md) para detalles y licencias (GPLv3).
+> The PowerPC → C++ static translator and ABI bridge come from **WiiCompiled** (commit `85f250155f`).
+> See [`toolchain/ORIGIN.md`](toolchain/ORIGIN.md) and [`toolchain/THIRD-PARTY-NOTICES.md`](toolchain/THIRD-PARTY-NOTICES.md) for details and licensing (GPLv3).
 
-### 👥 Colaboradores y Contribuciones de la Comunidad
+### 👥 Community Contributors
 
 - **[Álvaro Barchín (@abarchin)](https://github.com/abarchin)**:
-  - **Audio:** Recuperación y reconexión automática del stream de audio en Android tras suspender la app o cambiar a otra aplicación (`AAudio` lifecycle fix).
-  - **Gráficos / Efectos:** Corrección del orden de iluminación en efectos de partículas (`CalcCollected`), solucionando el destello blanco/textura sin iluminar al golpear monstruos o levantar polvo al correr.
-  - **Controles:** Opción para auto-ocultar la rueda de ajustes (⚙) tras inactividad táctil (3 s, 5 s, 10 s).
+  - **Audio:** Automatic recovery/reconnection of Android audio streams after suspending the app or switching away (`AAudio` lifecycle fix).
+  - **Graphics / Effects:** Fixed particle lighting order (`CalcCollected`), removing the white flash/unlit texture effect when hitting monsters or kicking up dust.
+  - **Controls:** Option to auto-hide the settings wheel (⚙) after touch inactivity (3 s, 5 s, 10 s).
 
-### Otros Proyectos Utilizados
+### Other Projects Used
 
-| Proyecto | Uso | Licencia |
-|----------|-----|----------|
-| [Aurora (encounter/aurora)](https://github.com/encounter/aurora) | HAL gráfico SDL3 + OpenGL ES 3.0 | MIT |
-| [libSDL3](https://github.com/libsdl-org/SDL) | Ventana, audio, input multiplataforma | zlib |
-| [Dolphin Emulator](https://github.com/dolphin-emu/dolphin) | Referencia de comportamiento hardware, Riivolution y paquetes de texturas HD | GPL-2.0 |
-| [Crypto++](https://github.com/weidai11/cryptopp) | Criptografía de red (SHA-1, ECDSA) | BSL-1.0 |
-| [pugixml](https://github.com/zeux/pugixml) | Parser XML para parches Riivolution | MIT |
-| [toml11](https://github.com/ToruNiina/toml11) | Configuración de ajustes | MIT |
-| [stb_dxt](https://github.com/nothings/stb) | Compresión de texturas DXT | MIT/Public Domain |
-
----
-
-## ✨ Novedades y Características (v1.5)
-
-### ⌨️ 1. Integración Nativa del Teclado de Android
-- **Apertura automática**: Al abrir cualquier diálogo de introducción de texto del juego (creación y nombre de personaje, chat de Loc Lac, nombres de equipamiento, etc.), se despliega automáticamente el teclado del sistema (Gboard, Samsung Keyboard, etc.).
-- **Escritura y borrado en tiempo real**: Se escribe y borra directamente sobre el búfer UTF-16BE del motor de juego con soporte para caracteres en español (`ñ`, tildes, números y signos).
-- **Confirmación con Enter**: Al presionar la tecla *Enter / Intro / Enviar*, el juego procesa y confirma el texto de forma nativa cerrando el menú de la Wii.
-- **Ocultamiento inteligente de controles virtuales**: Los botones táctiles en pantalla se ocultan automáticamente mientras el teclado está activo para no obstruir la visión, reapareciendo al cerrarlo.
-- **Restauración al volver de segundo plano**: Si sales de la aplicación o cambias de ventana con el teclado activo, este se restaura suavemente al reenfocar la pantalla.
-- **Aislamiento de controles de juego**: Se bloquean las teclas de control de PC mientras se escribe, evitando que espacios o letras activen botones o muevan al cazador.
-
-### ⏭️ 2. Salto de Cinemáticas con el Botón A
-- Permite omitir cinemáticas en tiempo real simplemente pulsando el **botón A** o el **botón +**.
-- Funciona tanto en las **secuencias del motor** (apariciones de monstruos y cinemáticas in-game) como en los **vídeos pre-renderizados** (vídeos de apertura y transición en formato THP).
-
-### 🚀 3. Corrección de Rendimiento y Cámara Lenta en Gamas de Entrada (Helio G25 / Nokia G10)
-- Se solucionó el problema por el cual dispositivos que corren a 15–25 FPS sufrían una ralentización artificial (simulación en cámara lenta).
-- Se amplió el límite delta dinámico de fotogramas hasta 100 ms (10 FPS), permitiendo que la física y las animaciones se sincronicen al 100% en tiempo real a cualquier tasa de cuadros.
-
-### 🛡️ 4. Corrección de Crash en Dispositivos con 4GB RAM (Helio G85 / Moto G24)
-- Solucionado el fallo `Invalid or duplicate model GPU registration` que ocurría al grabar pantalla o al reanudar la app en dispositivos con SoC MediaTek Helio G85.
-- Gestión segura de handles de malla y purga optimizada en el ciclo de dibujado.
-
-### 📺 5. Selector de Relación de Aspecto
-- En `Ajustes` → `Gráficos` se incluye selector entre **16:9 Panorámica (Recomendado)**, **Pantalla Completa Adaptable** (llena la pantalla del móvil sin bordes) y **4:3 Clásica**, resolviendo franjas negras desalineadas en menús.
+| Project | Use | License |
+|---------|-----|---------|
+| [Aurora (encounter/aurora)](https://github.com/encounter/aurora) | SDL3 + OpenGL ES 3.0 graphics HAL | MIT |
+| [SDL3](https://github.com/libsdl-org/SDL) | Windowing, audio, cross-platform input | zlib |
+| [Dolphin Emulator](https://github.com/dolphin-emu/dolphin) | Hardware behavior reference, Riivolution and HD texture package conventions | GPL-2.0 |
+| [Crypto++](https://github.com/weidai11/cryptopp) | Network cryptography (SHA-1, ECDSA) | BSL-1.0 |
+| [pugixml](https://github.com/zeux/pugixml) | XML parser for Riivolution patches | MIT |
+| [toml11](https://github.com/ToruNiina/toml11) | Settings configuration | MIT |
+| [stb_dxt](https://github.com/nothings/stb) | DXT texture compression | MIT/Public Domain |
 
 ---
 
-### ⚠️ Bugs Conocidos (Known Issues)
-1. **Atajo acuático en "Sin amor para el Ludroth"**: En la misión de 2 estrellas de la aldea llamada *"Sin amor para el Ludroth"*, existe un fallo en el atajo acuático del campamento base donde pueden fallar las físicas (en otras misiones no se ha detectado este problema).
-2. **Autocompletado del teclado**: Con la integración del teclado de Android, si se hace uso de las sugerencias o autocompletado predictivo del teclado, el texto renderizado en la caja de texto del juego puede buguearse visualmente (se recomienda teclear directamente letra por letra).
+## ✨ New in v1.5.5-test (versionCode 10)
+
+### 🎛️ 1. Offline Cheat Manager
+
+- New **Cheats** tab in the touch settings overlay.
+- Curated native cheat categories: Player, Items, Combat, Progression, Advanced, and Gecko/custom codes.
+- Whole-row tapping: tap anywhere on a cheat row to open its confirmation/toggle flow.
+- Enabling a cheat automatically turns **Master ON** when needed, and the confirmation dialog says so.
+- Save-risk warnings for progression/advanced cheats and one-shot box fills.
+- Master OFF, all-OFF, latch reset, and repeat one-shot fills.
+- Profile import/export under `/storage/emulated/0/MH3/cheats/`.
+- Online/City safety guard: cheats cannot be enabled during an online session. The guard now correctly allows **offline village** gameplay; earlier test builds falsely treated village mode as online.
+
+### 🧪 2. Strict Custom RAM-Write Codes
+
+- Supports reviewed Gecko-style `00` byte, `02` halfword, and `04` word writes only.
+- Requires explicit source → PAL target mappings; no blind PAL/NTSC offset guessing.
+- Rejects ASM, hooks, pointers, conditionals, executable/MMIO targets, and unmapped addresses.
+- Custom codes import OFF and are persisted separately from native cheats.
+- See [`docs/cheat-and-mod-manager.md`](docs/cheat-and-mod-manager.md) for format and safety details.
+
+### 📦 3. Mod Manager
+
+- New **Mods** tab for managed replacement packages.
+- Packages live under `/storage/emulated/0/MH3/mods/<package-id>/package.oceantri`.
+- Manifest validation, SHA-256 integrity checks, exact-length file replacement checks, and unsafe-path rejection.
+- HD texture packs can activate/deactivate live.
+- Model/weapon/armor BRRES and audio stream replacements are saved immediately but apply at the **next launch** when required.
+- Priority-based conflict resolution and isolated mod asset caches.
+- Original disc files and Wii saves are never edited by the Mod Manager.
+
+### 📱 4. Android Startup and Input Fixes
+
+- Fixed the Android launch abort caused by mismatched SDL JNI runtimes (`JNI_OnLoad` / missing `onNativePadDown`).
+- The APK now uses a single vendored **SDL 3.4.16 static** runtime inside `libmain.so`; no separate `libSDL3.so` is packaged.
+- Android keyboard/IME customizations are preserved.
+- Added configure-time and APK-time SDL JNI contract verification.
+
+### ⚠️ Test-Build Notes
+
+- This is a **test build**: `versionName=1.5.5-test`, `versionCode=10`.
+- Only the PAL disc `RMHP08` is supported by the runtime manager paths.
+- Cheats can modify save data. Back up `/storage/emulated/0/MH3` before experimenting.
+- CI builds may be signed with a fresh ephemeral key. If Android refuses an update, back up your data, uninstall the previous CI APK, and reinstall.
 
 ---
 
-## ✨ Versiones Anteriores
+## ✨ v1.5 Features
 
-### 🏰 Novedades de la v1.4.5
+### ⌨️ 1. Native Android Keyboard Integration
 
-### 🏰 1. Modo Online — Ciudad Loc Lac
-- Conexión directa al servidor comunitario oficial **mh3sp.com** para jugar en línea con otros cazadores.
-- Servidor local embebido (adaptación nativa de [MH3SP](https://github.com/sepalani/MH3SP)) para modo LAN.
-- Beacon LAN para descubrimiento automático de partidas en red local o redes virtuales privadas (**ZeroTier**).
-- Implementación nativa de NAS (Nintendo Authentication Server).
+- **Automatic opening:** When the game opens a text-entry dialog (character creation/name, Loc Lac chat, equipment names, etc.), the system keyboard opens automatically.
+- **Real-time typing/deleting:** Text is written directly into the game’s UTF-16BE buffer, including Spanish characters (`ñ`, accents, numbers, and punctuation).
+- **Enter confirmation:** Pressing Enter/Send confirms the text natively and closes the Wii menu.
+- **Smart virtual-control hiding:** On-screen buttons hide while the keyboard is active and return when it closes.
+- **Background restore:** If you leave the app with the keyboard active, it restores smoothly when focus returns.
+- **Game-control isolation:** PC control keys are blocked while typing, preventing letters/space from moving the hunter or triggering buttons.
 
-### ⏱️ 2. Selector Libre de FPS (30 / 60 / 90 / 120 FPS)
-- Selector de FPS totalmente configurable y a elección del usuario en `Ajustes` → `Gráficos`:
-  - **30 FPS**: Velocidad de físicas idéntica a la consola Wii original (recomendado para estabilidad en el modo online).
-  - **60, 90 o 120 FPS**: Máxima fluidez y respuesta visual en pantallas con alta tasa de refresco.
-- Control total a discreción del jugador sin bloqueos forzados.
+### ⏭️ 2. Cutscene Skip with A
 
-### 🔇 3. Corrección de Audio en Segundo Plano (AAudio)
-- Se solucionó la pérdida permanente de sonido al cambiar de aplicación o al apagar la pantalla (`AAudio stream disconnect`). Ahora el audio se reanuda suavemente al regresar al juego.
+- Skip cutscenes in real time by pressing **A** or **+**.
+- Works for both in-engine sequences (monster introductions, in-game cinematics) and pre-rendered THP videos.
 
-### 💥 4. Corrección de Destellos y Partículas en Combate
-- Corregido el problema donde aparecía un destello blanco (estrella/rayos) al golpear monstruos o correr sobre tierra. La iluminación se aplica ahora en el orden correcto antes de procesar los emisores de partículas.
+### 🚀 3. Low-End Performance / Slow-Motion Fix
 
-### 📊 5. HUD de FPS y Temperatura del Dispositivo
-- Contador en tiempo real ubicado discretamente en la **esquina inferior izquierda** de la pantalla (`m_unit * 0.025f`).
-- Muestra los FPS actuales y la **temperatura real del dispositivo** (batería/SoC en °C), permitiendo monitorizar el rendimiento térmico durante cacerías intensas.
+- Fixed artificial slow motion on devices running at 15–25 FPS.
+- Increased the dynamic frame delta limit to 100 ms (10 FPS), allowing physics/animation to stay synchronized in real time at low frame rates.
 
-### 🎚️ 6. Selector de Opacidad y Auto-ocultado de Botones Virtuales
-- En `Ajustes` → `Controles`:
-  - **Opacidad Táctil**: Elige entre 25% (Suave), 50% (Medio), 75% (Claro) o 100% (Sólido).
-  - **Auto-ocultar Ajustes (⚙)**: Opción para desvanecer la rueda de ajustes tras 3, 5 o 10 segundos sin tocar la pantalla para una experiencia inmersiva limpia.
-- Todas las preferencias se guardan automáticamente en `touch_layout.cfg`.
+### 🛡️ 4. 4 GB RAM Device Crash Fix
 
-### 🖼️ 7. Reemplazo de Texturas en Alta Definición (Pack Dolphin HD)
-- Soporte nativo para paquetes de texturas HD diseñados originalmente para Dolphin (`tex1_...`).
-- Acceso directo en la memoria del teléfono: coloca tus carpetas de texturas (como `RMHE08` o `RMHP08`) en:
+- Fixed `Invalid or duplicate model GPU registration` crashes when screen recording or resuming on some MediaTek Helio G85 devices.
+- Safer mesh-handle management and draw-cycle purge handling.
+
+### 📺 5. Aspect Ratio Selector
+
+- In `Settings` → `Graphics`: **16:9 Widescreen (Recommended)**, **Adaptive Fullscreen**, and **4:3 Classic**.
+- Fixes misaligned black bars in menus.
+
+### ⚠️ Known Issues
+
+1. **Water shortcut in “No Love for Ludroth”**: In the 2-star village quest *Sin amor para el Ludroth*, the base-camp water shortcut can have physics problems. Other quests have not shown this issue.
+2. **Keyboard autocomplete**: Using predictive text/autocomplete may visually corrupt the in-game text box. Typing letter by letter is recommended.
+
+---
+
+## ✨ Previous Versions
+
+### 🏰 v1.4.5 Highlights
+
+#### 🏰 1. Online Mode — Loc Lac City
+
+- Direct connection to the community server **mh3sp.com**.
+- Embedded local server (native adaptation of [MH3SP](https://github.com/sepalani/MH3SP)) for LAN mode.
+- LAN beacon for automatic local/VPN discovery (**ZeroTier**).
+- Native NAS (Nintendo Authentication Server) implementation.
+
+#### ⏱️ 2. Free FPS Selector (30 / 60 / 90 / 120 FPS)
+
+- In `Settings` → `Graphics`:
+  - **30 FPS:** Original Wii physics speed; recommended for online stability.
+  - **60 / 90 / 120 FPS:** Smoother visuals on high-refresh displays.
+
+#### 🔇 3. Background Audio Fix (AAudio)
+
+- Fixed permanent audio loss after switching apps or turning the screen off. Audio resumes when returning to the game.
+
+#### 💥 4. Combat Flash / Particle Fix
+
+- Fixed white flash/star effects when hitting monsters or running on dirt by applying lighting in the correct order before particle emitters.
+
+#### 📊 5. FPS and Device Temperature HUD
+
+- Optional bottom-left HUD showing current FPS and device/battery temperature in °C.
+
+#### 🎚️ 6. Touch Opacity and Auto-Hide Settings
+
+- In `Settings` → `Controls`:
+  - **Touch opacity:** 25%, 50%, 75%, or 100%.
+  - **Auto-hide settings wheel:** 3, 5, or 10 seconds.
+- Preferences are saved in `touch_layout.cfg`.
+
+#### 🖼️ 7. Dolphin-Style HD Texture Replacement
+
+- Supports Dolphin HD texture packs (`tex1_...`).
+- Place texture folders such as `RMHE08` or `RMHP08` in:
   `/storage/emulated/0/MH3/textures/`
-- En el menú `Ajustes` → `Gráficos` encontrarás un interruptor para activar/desactivar texturas HD, un contador de texturas cargadas y un botón para **recargar texturas en caliente** sin reiniciar el juego.
+- `Settings` → `Graphics` includes an HD texture toggle, loaded-texture counter, and hot-reload button.
 
-### 🔐 8. Firma Triple de APK (v1 + v2 + v3) y Compatibilidad Total
-- Se corrigió el problema de instalación `"App no instalada: digest did not verify"`.
-- Los paquetes APK ahora se firman simultáneamente con esquemas **v1 (JAR signing)**, **v2 (APK Signature)** y **v3 (Android 9+)**, además de estar alineados a páginas de 16 KB (`zipalign -P 16`). Compatible con MIUI, HyperOS, ColorOS, One UI, OxygenOS y Android AOSP (Android 10 hasta Android 15+).
+#### 🔐 8. Triple APK Signing (v1 + v2 + v3)
 
-### 🎮 9. Controles Táctiles y Mandos Físicos
-- **Gamepad Virtual Completo**: Sticks analógicos, A/B/X/Y, L/R/ZL/ZR, D-Pad, +/-.
-- **Botones Macro**: M1 (A+X), M2 (B+Y), M3 (L+R), M4 (A+B) — M4 viene desactivado por defecto y con prioridad de colisión.
-- **Modo Edición en Pantalla**: Arrastra y reposiciona cualquier botón táctil con escala independiente.
-- **Keymapper para Mandos Bluetooth/USB**: Disposiciones Nintendo y Xbox / Genérica con intercambio de gatillos.
+- APKs are signed with v1, v2, and v3 schemes and aligned for 16 KB pages (`zipalign -P 16`).
+- Improves compatibility across MIUI, HyperOS, ColorOS, One UI, OxygenOS, and AOSP.
 
-### 📝 10. Sistema de Registro (Logs)
-- Los logs se guardan de forma accesible en `/storage/emulated/0/MH3/logs/`:
-  - `game_log.txt`: Salida y actividad del juego.
-  - `oceantri_log.txt`: Eventos y conectividad de red.
-  - `oceantri_crash.txt`: Diagnóstico de fallos.
+#### 🎮 9. Touch Controls and Physical Controllers
 
----
+- Full virtual gamepad: analog sticks, A/B/X/Y, L/R/ZL/ZR, D-Pad, +/-.
+- Macro buttons: M1 (A+X), M2 (B+Y), M3 (L+R), M4 (A+B).
+- On-screen edit mode for dragging/resizing buttons.
+- Bluetooth/USB controller keymapper with Nintendo and Xbox/generic layouts.
 
-## 📲 Instalación
+#### 📝 10. Logging
 
-1. Dirígete a la sección de **[Releases](https://github.com/Kiridor123/OceanTriRecomp-Android/releases)**.
-2. Descarga el archivo `OceanTriRecomp-Android-v1.4.5-arm64.apk`.
-3. Instálalo en tu dispositivo Android (permite fuentes desconocidas si tu navegador lo solicita).
-4. Abre **Monster Hunter Tri**. En la pantalla de bienvenida, selecciona tu copia legal de Monster Hunter Tri (`.iso` o `.rvz`, versión europea recomendada `RMHP08`).
-5. ¡A cazar!
+- Logs are stored in `/storage/emulated/0/MH3/logs/`:
+  - `game_log.txt`: Game output/activity.
+  - `oceantri_log.txt`: Runtime/network events.
+  - `oceantri_crash.txt`: Crash diagnostics.
 
 ---
 
-## 🛠️ Requisitos del Dispositivo
+## 📲 Installation
 
-- **Procesador**: 64-bit ARMv8-A (Snapdragon, MediaTek Dimensity, Google Tensor, Samsung Exynos).
-- **Sistema Operativo**: Android 10 (API nivel 29) o superior.
-- **Gráficos**: Compatible con OpenGL ES 3.0+.
-- **Almacenamiento**: Alrededor de 3 a 5 GB libres para los datos del juego y texturas opcionales.
+1. Go to **[Releases](https://github.com/Stlucifer15t/OceanTriRecomp-Android/releases)**.
+2. Download `OceanTriRecomp-Android-v1.5.5-test-arm64.apk`.
+3. Install it on your Android device. Allow installation from unknown sources if prompted.
+4. Open the app and select your legally obtained copy of **Monster Hunter Tri** (`.iso` or `.rvz`; European PAL `RMHP08` is recommended/required for manager features).
+5. Hunt!
+
+> **Updating from an older CI/test APK:** CI signing keys may differ between runs. If installation fails with a signature mismatch, back up `/storage/emulated/0/MH3`, uninstall the old APK, then install the new one.
 
 ---
 
-## 🏗️ Compilar desde el Código Fuente (Build from Source)
+## 🎛️ Cheat and Mod Quick Start
 
-### Prerrequisitos (Linux)
+### Cheats
+
+- Open the touch settings overlay and go to **Cheats**.
+- Enable a cheat; Master turns ON automatically if needed.
+- Confirm save-risk warnings carefully.
+- Profiles and custom codes live under `/storage/emulated/0/MH3/cheats/`.
+- Cheats are blocked in online/City sessions. Return offline and relaunch for a clean guard.
+
+### Mods
+
+- Place a package at `/storage/emulated/0/MH3/mods/<package-id>/package.oceantri`.
+- The folder name must match the manifest `id`.
+- Open **Mods** and enable the package.
+- HD textures apply live; model/audio file replacements may require relaunch.
+- See [`docs/cheat-and-mod-manager.md`](docs/cheat-and-mod-manager.md) for manifest format, safety rules, and troubleshooting.
+
+---
+
+## 🛠️ Device Requirements
+
+- **CPU:** 64-bit ARMv8-A (Snapdragon, MediaTek Dimensity, Google Tensor, Samsung Exynos, etc.).
+- **OS:** Android 10 (API 29) or newer.
+- **Graphics:** OpenGL ES 3.0+.
+- **Storage:** Around 3–5 GB free for game data and optional textures/mods.
+
+---
+
+## 🏗️ Build from Source
+
+### Prerequisites (Linux)
+
 - Android NDK r28+
 - Android SDK Build-Tools 35.0.0
-- CMake 3.25+ y Ninja
+- CMake 3.25+ and Ninja
 - Clang / LLVM
 - Java JDK 17+
+- .NET 8 SDK (for the translator CLI)
 
-### Pasos
+### Steps
+
 ```bash
-# 1. Clonar el repositorio
-git clone https://github.com/Kiridor123/OceanTriRecomp-Android.git
+# 1. Clone the repository
+git clone https://github.com/Stlucifer15t/OceanTriRecomp-Android.git
 cd OceanTriRecomp-Android
 
-# 2. Configurar variables de entorno (ajusta según tus rutas locales)
-export ANDROID_HOME="/ruta/a/android-sdk"
+# 2. Set environment variables (adjust paths for your machine)
+export ANDROID_HOME="/path/to/android-sdk"
 export ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/28.2.13676358"
 
-# 3. Configurar CMake (ARM64)
+# 3. Configure CMake for ARM64
 cmake -B build-android \
   -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
   -DANDROID_ABI=arm64-v8a \
@@ -189,24 +280,39 @@ cmake -B build-android \
   -DANDROID=ON \
   -G Ninja
 
-# 4. Compilar target nativo
-cmake --build build-android --target MH3 --parallel $(nproc)
+# 4. Build the native target
+cmake --build build-android --target MH3 --parallel "$(nproc)"
 
-# 5. Empaquetar APK firmado
+# 5. Package the signed APK
 bash packaging/android/build_apk.sh
 ```
 
-El APK firmado se genera en `release/OceanTriRecomp-Android-v1.4.5-arm64.apk`.
+The signed APK is generated at:
+
+```text
+release/OceanTriRecomp-Android-v1.5.5-test-arm64.apk
+```
+
+### Host Tests
+
+```bash
+cmake -S tests/manager -B build-manager/tests -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build build-manager/tests --parallel "$(nproc)"
+ctest --test-dir build-manager/tests --output-on-failure
+python3 -m unittest discover -s tests/android -p 'test_*.py' -v
+```
 
 ---
 
-## ⚖️ Licencia y Descargo de Responsabilidad (Disclaimer)
+## ⚖️ License and Disclaimer
 
-### Licencia del Código
-Este proyecto está distribuido bajo la licencia **GNU General Public License v3.0 (GPLv3)**. Consulta el archivo [LICENSE](LICENSE) para más detalles.
+### Code License
 
-### Descargo de Responsabilidad Legal
-- **Monster Hunter** y **Monster Hunter Tri** son marcas registradas de **Capcom Co., Ltd.**
-- **Wii** es una marca registrada de **Nintendo Co., Ltd.**
-- Este proyecto es un esfuerzo independiente de código abierto con fines de investigación, compatibilidad y preservación histórica. No está afiliado, respaldado, asociado ni patrocinado por Capcom ni por Nintendo.
-- **Este repositorio y sus versiones compiladas (Releases) NO contienen ni distribuyen ningún archivo con derechos de autor, código propietario, modelos, texturas, música ni archivos ROM del juego original.** El usuario final debe suministrar su propia copia legalmente adquirida de *Monster Hunter Tri* para generar o cargar los datos necesarios en la aplicación.
+This project is distributed under the **GNU General Public License v3.0 (GPLv3)**. See [LICENSE](LICENSE) for details.
+
+### Legal Disclaimer
+
+- **Monster Hunter** and **Monster Hunter Tri** are trademarks of **Capcom Co., Ltd.**
+- **Wii** is a trademark of **Nintendo Co., Ltd.**
+- This is an independent open-source project for research, compatibility, and historical preservation. It is not affiliated with, endorsed by, or sponsored by Capcom or Nintendo.
+- **This repository and its compiled releases do not contain or distribute copyrighted game assets, proprietary code, models, textures, music, or ROM files.** Users must provide their own legally acquired copy of *Monster Hunter Tri* to generate/load the required game data.
