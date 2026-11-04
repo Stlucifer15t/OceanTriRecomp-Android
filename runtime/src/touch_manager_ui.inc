@@ -197,16 +197,38 @@ private:
 
     void ManagerQueueFailed() { m_managerMessage = Tr("Cola llena; inténtalo de nuevo.", "Command queue full; try again."); m_managerRefreshMs = 0; }
 
+    bool ManagerOnlineLocked() {
+        if (!m_cheatSnapshot.online) return false;
+        m_managerMessage = Tr("Modo online/City activo: trucos bloqueados. Vuelve al modo offline y reinicia.", "Online/City mode active: cheats locked. Return offline and relaunch.");
+        m_managerRefreshMs = 0;
+        return true;
+    }
+
+    // The touch UI treats enabling a cheat as an explicit request to activate
+    // it. If the master switch is OFF, queue Master ON first on the game thread;
+    // otherwise the row would look selected while every native hook stayed gated.
+    bool ManagerEnsureMasterOn() {
+        if (m_cheatSnapshot.master) return true;
+        if (!CheatManager::Queue(CheatManager::Action::Master, 0, 1)) {
+            ManagerQueueFailed();
+            return false;
+        }
+        return true;
+    }
+
     void ManagerRequestToggle(size_t native, bool value, bool saveRisk) {
+        if (value && ManagerOnlineLocked()) return;
         if (value && saveRisk) {
             m_confirmOpen = true; m_confirmKind = 1; m_confirmNative = native; m_confirmValue = true;
             return;
         }
+        if (value && !ManagerEnsureMasterOn()) return;
         if (!CheatManager::Queue(CheatManager::Action::Toggle, native, value ? 1 : 0)) ManagerQueueFailed();
         m_managerRefreshMs = 0;
     }
 
     void ManagerRequestCustom(uint64_t id, bool value) {
+        if (value && ManagerOnlineLocked()) return;
         if (value) {
             m_confirmOpen = true; m_confirmKind = 2; m_confirmId = id; m_confirmValue = true;
             return;
@@ -216,6 +238,7 @@ private:
     }
 
     void ManagerRequestMaster(bool value) {
+        if (value && ManagerOnlineLocked()) return;
         if (value && ManagerRiskSelected()) {
             m_confirmOpen = true; m_confirmKind = 0; m_confirmValue = true;
             return;
@@ -225,11 +248,17 @@ private:
     }
 
     void ManagerExecuteConfirm() {
+        if (m_confirmValue && ManagerOnlineLocked()) {
+            m_confirmOpen = false;
+            return;
+        }
         if (m_confirmKind == 0) {
             if (!CheatManager::Queue(CheatManager::Action::Master, 0, m_confirmValue ? 1 : 0)) ManagerQueueFailed();
         } else if (m_confirmKind == 1) {
+            if (m_confirmValue && !ManagerEnsureMasterOn()) { m_confirmOpen = false; return; }
             if (!CheatManager::Queue(CheatManager::Action::Toggle, m_confirmNative, m_confirmValue ? 1 : 0)) ManagerQueueFailed();
         } else {
+            if (m_confirmValue && !ManagerEnsureMasterOn()) { m_confirmOpen = false; return; }
             if (!CustomCodes::QueueToggle(m_confirmId, m_confirmValue)) ManagerQueueFailed();
         }
         m_confirmOpen = false;
@@ -246,6 +275,8 @@ private:
         DrawText(x + 20.0f, y + 18.0f, Tr("Copia de seguridad primero", "Back up saves first"), 20.0f, COL_WHITE);
         DrawText(x + 20.0f, y + 56.0f, ManagerFit(Tr("Este cambio puede guardarse y persistir al apagar el truco.", "This change can be saved and persist after the cheat is OFF."), w - 40.0f, 14.0f).c_str(), 14.0f, COL_MUTED);
         DrawText(x + 20.0f, y + 82.0f, ManagerFit(Tr("Los desbloqueos de una vez no se revierten. El juego online requiere reiniciar.", "One-shot unlocks are not reverted. Online play needs a fresh launch."), w - 40.0f, 14.0f).c_str(), 14.0f, COL_MUTED);
+        if (m_confirmKind != 0 && !m_cheatSnapshot.master)
+            DrawText(x + 20.0f, y + 106.0f, ManagerFit(Tr("El maestro está OFF; Activar lo encenderá.", "Master is OFF; Enable will turn it ON."), w - 40.0f, 13.0f).c_str(), 13.0f, COL_CYAN);
         const float bw = (w - 60.0f) * 0.5f;
         ManagerDrawButton(x + 20.0f, y + h - 64.0f, bw, 44.0f, Tr("Cancelar", "Cancel"), false);
         ManagerDrawButton(x + 40.0f + bw, y + h - 64.0f, bw, 44.0f, Tr("Activar", "Enable"), true);
@@ -296,11 +327,13 @@ private:
         const auto l = ManagerGetLayout(y, w);
         ManagerClampPage(l);
         const bool master = m_cheatSnapshot.master;
-        ManagerDrawButton(x, l.topY, 150.0f, 44.0f, master ? Tr("Maestro: ON", "Master: ON") : Tr("Maestro: OFF", "Master: OFF"), master);
+        ManagerDrawButton(x, l.topY, 150.0f, 44.0f, master ? Tr("Maestro: ON", "Master: ON") : Tr("Maestro: OFF", "Master: OFF"), master, !m_cheatSnapshot.online || master);
         ManagerDrawButton(x + 158.0f, l.topY, 104.0f, 44.0f, Tr("Reset", "Reset"), false);
         ManagerDrawButton(x + 270.0f, l.topY, 110.0f, 44.0f, Tr("Todo OFF", "All OFF"), false);
-        const auto status = m_managerMessage.empty() ? m_cheatSnapshot.status : m_managerMessage;
-        DrawText(x + 392.0f, l.topY + 14.0f, ManagerFit(status, std::max(40.0f, w - 392.0f), 13.0f).c_str(), 13.0f, m_cheatSnapshot.used ? COL_CYAN : COL_MUTED);
+        std::string status = m_managerMessage.empty() ? m_cheatSnapshot.status : m_managerMessage;
+        if (m_cheatSnapshot.online)
+            status = Tr("Online/City: trucos bloqueados. Offline + reinicio.", "Online/City: cheats locked. Go offline + relaunch.");
+        DrawText(x + 392.0f, l.topY + 14.0f, ManagerFit(status, std::max(40.0f, w - 392.0f), 13.0f).c_str(), 13.0f, (m_cheatSnapshot.used || m_cheatSnapshot.online) ? COL_CYAN : COL_MUTED);
 
         const char* cats[] = {Tr("Jugador", "Player"), Tr("Objetos", "Items"), Tr("Combate", "Combat"), Tr("Progreso", "Progress"), Tr("Avanzado", "Advanced"), "Gecko"};
         const float cw = (w - 5.0f * 6.0f) / 6.0f;
@@ -420,9 +453,10 @@ private:
                 const int index = m_managerPage * l.visible + r;
                 if (index >= int(rows.size())) break;
                 const float ry = l.listY + float(r) * (l.rowH + 6.0f);
-                if (ManagerIn(px, py, x + w - 90.0f, ry + (l.rowH - 40.0f) * 0.5f, 76.0f, 40.0f)) {
-                    const size_t ci = rows[size_t(index)];
-                    const bool on = ci < m_customView.enabled.size() && m_customView.enabled[ci];
+                const size_t ci = rows[size_t(index)];
+                const bool on = ci < m_customView.enabled.size() && m_customView.enabled[ci];
+                if (ManagerIn(px, py, x + w - 90.0f, ry + (l.rowH - 40.0f) * 0.5f, 76.0f, 40.0f) ||
+                    ManagerIn(px, py, x, ry, w, l.rowH)) {
                     ManagerRequestCustom(m_customView.codes[ci].id, !on);
                     return;
                 }
@@ -446,8 +480,9 @@ private:
                 CheatManager::Queue(CheatManager::Action::Select, entry.native, (selected + 1) % uint32_t(choices));
                 m_managerRefreshMs = 0; return;
             }
-            if (ManagerIn(px, py, x + w - 90.0f, ry + (l.rowH - 40.0f) * 0.5f, 76.0f, 40.0f)) {
-                const bool on = entry.native < m_cheatSnapshot.count && m_cheatSnapshot.enabled[entry.native];
+            const bool on = entry.native < m_cheatSnapshot.count && m_cheatSnapshot.enabled[entry.native];
+            if (ManagerIn(px, py, x + w - 90.0f, ry + (l.rowH - 40.0f) * 0.5f, 76.0f, 40.0f) ||
+                ManagerIn(px, py, x, ry, w, l.rowH)) {
                 ManagerRequestToggle(entry.native, !on, entry.saveRisk);
                 return;
             }
@@ -475,7 +510,8 @@ private:
             if (index >= int(rows.size())) break;
             const auto& p = m_modView.packages[rows[size_t(index)]];
             const float ry = l.listY + float(r) * (l.rowH + 6.0f);
-            if (p.valid && ManagerIn(px, py, x + w - 90.0f, ry + (l.rowH - 40.0f) * 0.5f, 76.0f, 40.0f)) {
+            if (p.valid && (ManagerIn(px, py, x + w - 90.0f, ry + (l.rowH - 40.0f) * 0.5f, 76.0f, 40.0f) ||
+                            ManagerIn(px, py, x, ry, w, l.rowH))) {
                 if (!ModManager::QueueToggle(p.id, !p.active)) ManagerQueueFailed();
                 m_managerRefreshMs = 0;
                 return;

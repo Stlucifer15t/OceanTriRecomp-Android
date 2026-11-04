@@ -32,6 +32,7 @@ struct Snapshot {
     bool initialized = false;
     bool master = false;
     bool used = false;
+    bool online = false; // game-thread mirror of the City/online guard
     size_t count = 0;
     uint64_t revision = 0;
     std::array<uint8_t, kMaxNativeCheats> enabled{};

@@ -155,6 +155,10 @@ CI:
 - `.github/workflows/manager-tests.yml` runs the isolated host suites on pushes and PRs.
 - `.github/workflows/build-apk.yml` now also runs on `arena/**` pushes and PRs to `main`, runs the host suites, builds the ARM64 APK, and uploads an artifact. Release publication remains restricted to pushes on `main`.
 
+### Touch activation and online lock
+
+Device testing after the SDL fix showed two UX problems: taps on a cheat row’s text did nothing because only the small OFF button was hit-tested, and confirming a save-risk cheat left Master OFF, so the switch looked selected but native hooks remained gated. The touch UI now hit-tests the whole row, and enabling a native/custom cheat queues Master ON first when Master is OFF. The confirmation dialog says when Enable will turn Master ON. The game thread also mirrors the City/online guard into `CheatManager::Snapshot::online`; the Cheats tab shows an explicit online lock instead of silently refusing. Cheats remain intentionally unavailable in online/City mode; return offline and relaunch for a clean guard.
+
 ### Android SDL startup contract
 
 A device log from the first manager APK showed `SIGABRT` inside `JNI_OnLoad` before `main()`: native SDL registered `SDLControllerManager.onNativePadDown(II)Z`, while the packaged Java glue declared `(III)Z`. The cause was packaging, not the cheat/mod UI: Aurora statically linked SDL 3.4.4 into `libmain.so`, while CI also copied a separate SDL 3.4.16 `libSDL3.so` from an old release and the Java sources were 3.4.16.

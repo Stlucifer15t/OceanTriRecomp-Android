@@ -35,6 +35,7 @@ std::string g_status = "Ready. Offline use only.";
 std::filesystem::path g_root;
 std::atomic<bool> g_initialized{false};
 std::atomic<bool> g_master{false};
+std::atomic<bool> g_online{false};
 std::atomic<uint64_t> g_revision{0};
 std::array<std::atomic<uint8_t>, kMaxNativeCheats> g_enabled{};
 std::array<std::atomic<uint32_t>, kMaxNativeCheats> g_selected{};
@@ -400,6 +401,9 @@ bool QueueFile(Action action, const std::filesystem::path& path) noexcept {
 void Pump() noexcept {
     if (!g_initialized.load(std::memory_order_acquire))
         return;
+    // Mirror the guard on the game thread so the UI can explain a refusal
+    // without reading guest memory from the render/input thread.
+    g_online.store(OnlineSessionActive(), std::memory_order_relaxed);
     std::vector<Command> commands;
     {
         std::lock_guard lock(g_queueMutex);
@@ -500,6 +504,7 @@ Snapshot GetSnapshot() noexcept {
     snapshot.initialized = g_initialized.load(std::memory_order_acquire);
     snapshot.master = g_master.load(std::memory_order_relaxed);
     snapshot.used = Cheats::g_used.load(std::memory_order_relaxed);
+    snapshot.online = g_online.load(std::memory_order_relaxed);
     snapshot.count = std::min(LauncherCheats::List().size(), kMaxNativeCheats);
     snapshot.revision = g_revision.load(std::memory_order_acquire);
     for (size_t i = 0; i < snapshot.count; ++i) {
@@ -529,6 +534,7 @@ void ResetForTests() noexcept {
     Cheats::g_used.store(false, std::memory_order_relaxed);
     Cheats::SetActive(true); // pre-manager CLI/launcher default, with no switches selected
     g_initialized.store(false, std::memory_order_relaxed);
+    g_online.store(false, std::memory_order_relaxed);
     g_root.clear();
     {
         std::lock_guard lock(g_queueMutex);

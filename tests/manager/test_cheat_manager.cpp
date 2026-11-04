@@ -196,7 +196,23 @@ int main() {
         Check(CheatManager::Queue(CheatManager::Action::Master, 0, 1), "queue master during online session");
         CheatManager::Pump();
         Check(!CheatManager::GetSnapshot().master, "online session refuses master enable");
+        Check(CheatManager::GetSnapshot().online, "online guard is mirrored for the touch UI");
         Memory::Write8(0x8065AA84u, 0);
+        CheatManager::Pump();
+        Check(!CheatManager::GetSnapshot().online, "offline guard clears after returning offline");
+
+        // The touch UI queues Master ON before an enable request when the user
+        // has not turned the master switch on. Verify that game-thread sequence.
+        const auto touchRoot = std::filesystem::temp_directory_path() /
+            ("oceantri-cheats-touch-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        CheatManager::ResetForTests();
+        Check(CheatManager::Initialize(touchRoot).ok, "initialize touch-sequence profile");
+        Check(!CheatManager::GetSnapshot().master, "touch sequence starts master OFF");
+        Check(CheatManager::Queue(CheatManager::Action::Master, 0, 1), "touch enable queues master ON");
+        Check(CheatManager::Queue(CheatManager::Action::Toggle, Index(Cheats::Id::InfiniteHealth), 1), "touch enable queues cheat ON");
+        CheatManager::Pump();
+        Check(CheatManager::GetSnapshot().master && Cheats::On(Cheats::Id::InfiniteHealth), "touch enable sequence activates the cheat");
+        std::filesystem::remove_all(touchRoot);
 
         // Bounded queue and concurrent producers cannot write native arrays.
         CheatManager::ResetForTests();
