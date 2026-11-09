@@ -89,13 +89,33 @@ jobs:
           fetch-depth: 1
           lfs: true
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17' # build_apk.sh compiles the Java sources with --release 17
 
       - name: Install the Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4.0.4
+
+      # The SDK step is the one piece of this workflow that is not plain shell.
+      # If it fails, say what the runner actually has, as annotations: the run
+      # log is a large download that not every client can read.
+      - name: Diagnose the SDK
+        if: failure()
+        run: |
+          {
+            echo "java: $(java -version 2>&1 | head -1)"
+            echo "ANDROID_HOME=${ANDROID_HOME:-unset}"
+            echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
+            echo "sdkmanager: $(command -v sdkmanager || echo missing)"
+            command -v sdkmanager > /dev/null && sdkmanager --version 2>&1 | head -3
+            echo "runner image: ${ImageOS:-unknown} ${ImageVersion:-}"
+            ls -1 "${ANDROID_HOME:-/nonexistent}" 2>&1 | head -10
+          } > "$RUNNER_TEMP/sdk-diag.txt" 2>&1
+          cat "$RUNNER_TEMP/sdk-diag.txt"
+          while IFS= read -r line; do
+            echo "::error title=SDK diagnostics::$line"
+          done < "$RUNNER_TEMP/sdk-diag.txt"
 
       - name: Install the NDK, CMake and build tools
         run: |
