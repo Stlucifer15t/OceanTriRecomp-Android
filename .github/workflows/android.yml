@@ -134,14 +134,24 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Build the translator
+        id: translator
         run: |
           dotnet build toolchain/translator/Translator.sln \
-            -c Release --nologo -v minimal
+            -c Release --nologo -v minimal > "$RUNNER_TEMP/dotnet.log" 2>&1 \
+            || { tail -25 "$RUNNER_TEMP/dotnet.log"; exit 1; }
           dll="toolchain/translator/src/Translator.Cli/bin/Release/net8.0/Translator.Cli.dll"
           test -f "$dll" || { echo "::error::the translator did not build: $dll missing"; exit 1; }
           # prepare_native_dispatch.py defaults to tools/dotnet/dotnet; the SDK
           # is on PATH here, so point DOTNET_BIN at it explicitly.
           echo "DOTNET_BIN=$(command -v dotnet)" >> "$GITHUB_ENV"
+
+      - name: Diagnose the translator build
+        if: failure() && steps.translator.outcome == 'failure'
+        run: |
+          tail -25 "$RUNNER_TEMP/dotnet.log" > "$RUNNER_TEMP/dn.txt" 2>&1 || true
+          while IFS= read -r line; do
+            [ -n "$line" ] && echo "::error title=dotnet build::$line"
+          done < "$RUNNER_TEMP/dn.txt"
 
       - name: Point the build at the SDK
         run: |
