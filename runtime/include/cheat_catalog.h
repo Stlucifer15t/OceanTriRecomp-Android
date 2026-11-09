@@ -14,6 +14,8 @@
 // asserts every entry of LauncherCheats::List() has a category, and that this
 // table has no row naming a cheat that no longer exists.
 #include <cstddef>
+#include <cstdint>
+#include <iterator> // std::size
 #include <span>
 #include <string_view>
 

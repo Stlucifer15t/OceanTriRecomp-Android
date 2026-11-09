@@ -430,10 +430,10 @@ void TestBaseAndPointer() {
         CheckEqual(ram.Peek32(0x80300020), 0x00000000u, "and not at the other register's address");
     }
 
-    // A 14 with po never set writes near zero rather than being refused: that is
-    // what the reference handler does (po starts at zero), and it is the code
-    // author's mistake, not an instruction this runtime cannot do. It does land
-    // in MEM1, which is why it is a write and not an error.
+    // A 14 with po never set is not refused: ba and po start at the bottom of
+    // MEM1 (0x80000000), as the reference handler leaves them, so the write
+    // lands at 0x80000010. That is the code author's omission, not an
+    // instruction this runtime cannot do, so it runs rather than erroring.
     {
         ram.Poke32(0x80000010, 0);
         const Gecko::Code code = CodeFrom("$NoPo\n14000010 0BADF00D\n");

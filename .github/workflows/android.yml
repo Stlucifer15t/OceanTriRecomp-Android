@@ -47,19 +47,35 @@ jobs:
       - name: Gecko engine and bundled library
         working-directory: runtime
         run: |
-          g++ -std=c++20 -O1 -Iinclude \
+          set -o pipefail
+          g++ -std=c++20 -O1 -Wall -Wextra -Iinclude \
             -o "$RUNNER_TEMP/MH3GeckoTests" \
             src/gecko_tests.cpp src/gecko_parser.cpp \
-            src/gecko_engine.cpp src/gecko_db.cpp
-          "$RUNNER_TEMP/MH3GeckoTests"
+            src/gecko_engine.cpp src/gecko_db.cpp 2>&1 | tee "$RUNNER_TEMP/gecko.log"
+          "$RUNNER_TEMP/MH3GeckoTests" 2>&1 | tee "$RUNNER_TEMP/gecko-test.log"
 
       - name: Cheat catalog
         working-directory: runtime
         run: |
-          g++ -std=c++20 -O1 -Iinclude \
+          set -o pipefail
+          g++ -std=c++20 -O1 -Wall -Wextra -Iinclude \
             -o "$RUNNER_TEMP/MH3CheatCatalogTests" \
-            src/cheat_catalog_tests.cpp src/cheat_catalog.cpp src/gecko_db.cpp
-          "$RUNNER_TEMP/MH3CheatCatalogTests"
+            src/cheat_catalog_tests.cpp src/cheat_catalog.cpp src/gecko_db.cpp \
+            2>&1 | tee "$RUNNER_TEMP/catalog.log"
+          "$RUNNER_TEMP/MH3CheatCatalogTests" 2>&1 | tee "$RUNNER_TEMP/catalog-test.log"
+
+      - name: Report failures
+        if: failure()
+        run: |
+          for log in gecko.log gecko-test.log catalog.log catalog-test.log; do
+            if [ -s "$RUNNER_TEMP/$log" ]; then
+              echo "--- $log"
+              grep -E 'error|FAIL|checks,' "$RUNNER_TEMP/$log" | head -20 || true
+              while IFS= read -r line; do
+                echo "::error file=runtime,title=$log::$line"
+              done < <(grep -E 'error:|FAIL' "$RUNNER_TEMP/$log" | head -5)
+            fi
+          done
 
   apk:
     name: Release APK (arm64)

@@ -606,7 +606,7 @@ Result Run(const Code& code, Memory& memory, const Options& options) {
     if (const std::string reason = UnsupportedReason(code); !reason.empty())
         return Result::Failure(reason);
 
-    Handler handler{memory, code.body};
+    Handler handler{memory, code.body, 0x80000000u, 0x80000000u, 0, 0, 0, {}};
     const bool ok = handler.Run();
 
     if (!ok)

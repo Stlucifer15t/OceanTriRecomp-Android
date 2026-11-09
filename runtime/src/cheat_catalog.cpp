@@ -12,7 +12,8 @@
 
 #include <algorithm>
 #include <cctype>
-#include <string>
+#include <iterator> // std::size, std::begin/std::end
+#include <string_view>
 
 namespace CheatCatalog {
 namespace {

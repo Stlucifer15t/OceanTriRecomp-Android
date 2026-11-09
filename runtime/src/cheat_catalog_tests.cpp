@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <iterator> // std::size
 #include <set>
 #include <string>
 #include <vector>
