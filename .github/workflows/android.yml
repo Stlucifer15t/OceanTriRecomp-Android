@@ -235,17 +235,25 @@ jobs:
       - name: Diagnose configure
         if: failure() && steps.configure.outcome == 'failure'
         run: |
-          echo "--- CMake's own error lines, as annotations"
-          # NOT the tail: a configure failure is usually preceded by dozens of
-          # successful flag probes, which would bury the reason.
-          grep -nE '^CMake (Error|Warning)|error:|FATAL|Could not|No such file|not found' \
-            "$RUNNER_TEMP/configure.log" | head -25 > "$RUNNER_TEMP/why.txt" 2>&1 || true
+          log="$RUNNER_TEMP/configure.log"
+          echo "--- log is $(wc -l < "$log") lines"
+
+          # Everything from the first "CMake Error" to the end: the reason and
+          # the call stack around it. Grepping for keywords instead pulled in
+          # hundreds of "Looking for X - not found" feature probes.
+          line=$(grep -n -m1 -E '^CMake Error' "$log" | cut -d: -f1)
+          if [ -n "$line" ]; then
+            start=$((line > 3 ? line - 3 : 1))
+            sed -n "${start},\$p" "$log" | head -45 > "$RUNNER_TEMP/why.txt"
+          else
+            # No "CMake Error": a plain failure, so the end of the log is the
+            # only place the reason can be.
+            tail -40 "$log" > "$RUNNER_TEMP/why.txt"
+          fi
+
           while IFS= read -r line; do
             [ -n "$line" ] && echo "::error title=cmake configure::$line"
           done < "$RUNNER_TEMP/why.txt"
-          echo "--- what CMake was given"
-          echo "::error title=cmake configure::NDK=${ANDROID_NDK_HOME} SDK=${ANDROID_SDK_ROOT} cmake=$(command -v cmake)"
-          cmake --version | head -1 || true
 
       - name: Report TLS
         run: |
