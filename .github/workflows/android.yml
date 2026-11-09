@@ -136,7 +136,11 @@ jobs:
       - name: Build the translator
         id: translator
         run: |
-          dotnet build toolchain/translator/Translator.sln \
+          # The CLI project, not the solution: the solution includes
+          # Translator.Tests, which copies a test asset that is not in the
+          # repository (TestAssets/RetroWfcPayload/binary/payload.RMCPD00.bin)
+          # and fails the build. Only the CLI is needed here.
+          dotnet build toolchain/translator/src/Translator.Cli/Translator.Cli.csproj \
             -c Release --nologo -v minimal > "$RUNNER_TEMP/dotnet.log" 2>&1 \
             || { tail -25 "$RUNNER_TEMP/dotnet.log"; exit 1; }
           dll="toolchain/translator/src/Translator.Cli/bin/Release/net8.0/Translator.Cli.dll"
