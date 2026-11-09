@@ -1,17 +1,25 @@
 #!/usr/bin/env bash
 # Builds the arm64 release APK and signs it.
 #
-# What it needs:
-#   * the Android SDK and NDK (ANDROID_HOME, ANDROID_NDK_HOME), JDK 17, CMake,
-#     Ninja;
-#   * ../generated - the translated game code, produced from the disc, not in
-#     this repository.
+# What it needs: the Android SDK and NDK (ANDROID_HOME, ANDROID_NDK_HOME), JDK
+# 17, CMake and Ninja. Everything else is in the repository - ../generated (the
+# translated game code) and aurora-main (which vendors SDL3 and libpng).
 #
-# SDL3 comes from Aurora, which vendors it on a cross build; point
-# MH3_SDL3_PREFIX at an installed SDL3 to link that instead.
+# SDL3 comes from Aurora's vendored build; point MH3_SDL3_PREFIX at an installed
+# SDL3 to link that instead. OpenSSL is optional: without it the game's SSL
+# sessions fail (runtime/CMakeLists.txt reads OPENSSL_ANDROID_DIR).
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ANDROID_SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/var/mnt/juegos_sdb2/MHFU/out/android-sdk}}"
+# The SDK: ANDROID_HOME, then a project-local install (toolchain/), then the
+# conventional location. Never a machine-specific path: CI and a laptop then
+# take the same route.
+ANDROID_SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+for candidate in "${ROOT_DIR}/toolchain/android-sdk" "${HOME}/Android/Sdk"; do
+    if [ -z "${ANDROID_SDK_ROOT}" ] && [ -d "${candidate}" ]; then
+        ANDROID_SDK_ROOT="${candidate}"
+    fi
+done
+ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-${HOME}/Android/Sdk}"
 ANDROID_NDK_ROOT="${ANDROID_NDK_HOME:-${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION:-28.2.13676358}}"
 
 BUILD_DIR="${ROOT_DIR}/build-android"

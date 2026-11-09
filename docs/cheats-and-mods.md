@@ -404,25 +404,36 @@ the change live (textures: index rebuild; audio/data: next load/step).
 
 ## 6. Build and CI
 
-`.github/workflows/android.yml` has two jobs. **tests** builds the Gecko engine
-and the cheat catalog tests with the runner's own compiler and runs them — no
-disc, no guest memory, no Aurora, a couple of minutes. **apk** installs the
-NDK, CMake and Ninja, builds `libmain.so` for arm64 with SDL3 and libpng vendored
-from source, packages and signs with `packaging/android/build_apk.sh`, and
-verifies the result (`apksigner`, and that `generated/` did not leak into the
-APK).
+`.github/workflows/android.yml` has two jobs.
 
-The APK job needs `../generated` — 23,170 translated functions, ~630 MB,
-produced from the disc and deliberately not in the repository — so it runs only
-when the repository variable `MH3_GENERATED_URL` names an archive of it, and is
-skipped (not failed) otherwise. Both scripts are environment-driven
-(`ANDROID_HOME`, `ANDROID_NDK_HOME`, `MH3_SDL3_PREFIX`,
-`MH3_LIBMAIN_SO`/`MH3_LIBPNG_SO`/`MH3_LIB_SDL3_SO`), so they no longer depend on
-the author's machine layout.
+**tests** builds the Gecko engine and cheat catalog tests with the runner's own
+compiler and runs them: no disc, no guest memory, no Aurora, a couple of
+minutes.
 
-Host tests are plain executables: `MH3GeckoTests` and `MH3CheatCatalogTests`
-in `runtime/CMakeLists.txt` (built when `MH3_BUILD_HOST_TESTS` is on), and the
-same two `g++` command lines in CI so they do not need the NDK.
+**apk** builds and signs the release APK. Everything the build reads is in the
+repository — `generated/` (23,397 tracked files of translated game code),
+`aurora-main` (which vendors SDL3 and libpng from pinned tarballs) and
+`third_party/games-frame-pacing` (the Swappy static library) — so a plain
+`actions/checkout` is enough. It installs JDK 17, the NDK, CMake and Ninja,
+compiles OpenSSL for arm64 and caches it (the one external input; without it
+the game's SSL sessions fail), builds `libmain.so`, packages and signs with
+`packaging/android/build_apk.sh`, verifies with `apksigner`, uploads the APK as
+an artifact, and attaches it to a `v*` tag's release.
+
+The packaging script no longer assumes a machine layout: it takes
+`ANDROID_HOME`/`ANDROID_NDK_HOME`, finds the NDK's `llvm-strip` by host triple,
+and discovers the three libraries it packages in the CMake build tree (their
+paths are FetchContent's, so they are searched for). `MH3_LIBMAIN_SO`,
+`MH3_LIBPNG_SO` and `MH3_LIB_SDL3_SO` override them. Build locally with the
+same commands CI runs:
+
+```
+scripts/build-android.sh          # configure, build, package, sign
+```
+
+Host tests are plain executables: `MH3GeckoTests` and `MH3CheatCatalogTests` in
+`runtime/CMakeLists.txt` (built when `MH3_BUILD_HOST_TESTS` is on), and the same
+two `g++` command lines in CI so they do not need the NDK.
 
 ## 7. Testing strategy
 

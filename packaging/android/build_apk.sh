@@ -3,7 +3,16 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-ANDROID_SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/var/mnt/juegos_sdb2/MHFU/out/android-sdk}}"
+# The SDK: ANDROID_HOME, then a project-local install (toolchain/), then the
+# conventional location. Never a machine-specific path: CI and a laptop then
+# take the same route.
+ANDROID_SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+for candidate in "${PROJECT_ROOT:-${ROOT_DIR:-.}}/toolchain/android-sdk" "${HOME}/Android/Sdk"; do
+    if [ -z "${ANDROID_SDK_ROOT}" ] && [ -d "${candidate}" ]; then
+        ANDROID_SDK_ROOT="${candidate}"
+    fi
+done
+ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-${HOME}/Android/Sdk}"
 SDK_BUILD_TOOLS="${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS:-35.0.0}"
 ANDROID_JAR="${ANDROID_SDK_ROOT}/platforms/android-${ANDROID_PLATFORM:-35}/android.jar"
 ANDROID_NDK_ROOT="${ANDROID_NDK_HOME:-${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION:-28.2.13676358}}"
@@ -22,29 +31,66 @@ if [ -z "${NDK_STRIP}" ]; then
     exit 1
 fi
 
-# The native libraries to package: libmain.so is this build's, the other two come
-# from the same CMake build (Aurora vendors SDL3 and libpng). Each can be
-# overridden for a layout that puts them elsewhere.
+# The native libraries to package. libmain.so is this build's; SDL3 and libpng
+# come from the same CMake build, because Aurora vendors both on a cross build -
+# their exact paths are FetchContent's, so they are searched for rather than
+# assumed. Each has an override for a layout that puts them elsewhere.
 BUILD_DIR_NATIVE="${PROJECT_ROOT}/build-android"
-LIBMAIN_SO="${MH3_LIBMAIN_SO:-${BUILD_DIR_NATIVE}/libmain.so}"
-LIBPNG_SO="${MH3_LIBPNG_SO:-${BUILD_DIR_NATIVE}/_deps/png-build/libpng16.so}"
-LIB_SDL3_SO="${MH3_LIB_SDL3_SO:-}"
-if [ -z "${LIB_SDL3_SO}" ]; then
-    for candidate in "${BUILD_DIR_NATIVE}"/_deps/*sdl3*/libSDL3.so "${BUILD_DIR_NATIVE}"/extern/*/libSDL3.so; do
-        if [ -f "${candidate}" ]; then
-            LIB_SDL3_SO="${candidate}"
-            break
+
+find_lib() {
+    # The first of the given globs that matches, newest file first.
+    for pattern in "$@"; do
+        # shellcheck disable=SC2086 # the globs are meant to expand
+        set -- $(ls -1 ${pattern} 2>/dev/null)
+        if [ "$#" -gt 0 ]; then
+            echo "$1"
+            return 0
         fi
     done
-fi
-LIB_SDL3_SO="${LIB_SDL3_SO:-/var/mnt/juegos_sdb2/MHFU/out/release-android-mhfu/deps/sdl3-install/lib/libSDL3.so}"
+    return 1
+}
 
-for lib in "${LIBMAIN_SO}" "${LIBPNG_SO}" "${LIB_SDL3_SO}"; do
-    if [ ! -f "${lib}" ]; then
-        echo "build_apk.sh: missing ${lib} (set MH3_LIBMAIN_SO / MH3_LIBPNG_SO / MH3_LIB_SDL3_SO)" >&2
-        exit 1
+LIBMAIN_SO="${MH3_LIBMAIN_SO:-}"
+if [ -z "${LIBMAIN_SO}" ]; then
+    LIBMAIN_SO="$(find_lib "${BUILD_DIR_NATIVE}/libmain.so" "${BUILD_DIR_NATIVE}/*/libmain.so")" || true
+fi
+
+LIBPNG_SO="${MH3_LIBPNG_SO:-}"
+if [ -z "${LIBPNG_SO}" ]; then
+    LIBPNG_SO="$(find_lib "${BUILD_DIR_NATIVE}/_deps/png-build/libpng16.so" \
+                          "${BUILD_DIR_NATIVE}"/_deps/*/libpng16.so \
+                          "${BUILD_DIR_NATIVE}"/*/libpng16.so)" || true
+fi
+
+LIB_SDL3_SO="${MH3_LIB_SDL3_SO:-}"
+if [ -z "${LIB_SDL3_SO}" ]; then
+    LIB_SDL3_SO="$(find_lib "${BUILD_DIR_NATIVE}"/_deps/*/libSDL3.so \
+                            "${BUILD_DIR_NATIVE}"/_deps/*/libSDL3.so.* \
+                            "${BUILD_DIR_NATIVE}"/*/libSDL3.so \
+                            "${BUILD_DIR_NATIVE}"/*/libSDL3.so.*)" || true
+fi
+
+missing=""
+for pair in "libmain.so:${LIBMAIN_SO}:MH3_LIBMAIN_SO" \
+            "libpng16.so:${LIBPNG_SO}:MH3_LIBPNG_SO" \
+            "libSDL3.so:${LIB_SDL3_SO}:MH3_LIB_SDL3_SO"; do
+    name="${pair%%:*}"; rest="${pair#*:}"; path="${rest%%:*}"; var="${rest##*:}"
+    if [ -z "${path}" ] || [ ! -f "${path}" ]; then
+        missing="${missing}
+  ${name}: not found under ${BUILD_DIR_NATIVE} (set ${var})"
     fi
 done
+
+if [ -n "${missing}" ]; then
+    echo "build_apk.sh: missing native libraries:${missing}" >&2
+    echo "Build them first: scripts/build-android.sh (or cmake --build build-android)" >&2
+    exit 1
+fi
+
+echo "=== 0. Native libraries ==="
+echo "  libmain.so  ${LIBMAIN_SO}"
+echo "  libpng16.so ${LIBPNG_SO}"
+echo "  libSDL3.so  ${LIB_SDL3_SO}"
 
 PKG_DIR="${PROJECT_ROOT}/packaging/android"
 BUILD_DIR="${PKG_DIR}/build"
@@ -130,9 +176,6 @@ echo "=== 10. Copying release APK ==="
 DEST_DIR="${PROJECT_ROOT}/release"
 mkdir -p "${DEST_DIR}"
 cp "${OUTPUT_APK}" "${DEST_DIR}/${MH3_APK_NAME:-OceanTriRecomp-Android-v1.6-arm64.apk}"
-if [ -d "/var/mnt/juegos_sdb2/OceanTriRecomp Alpha 1.3" ]; then
-    cp "${OUTPUT_APK}" "/var/mnt/juegos_sdb2/OceanTriRecomp Alpha 1.3/${MH3_APK_NAME:-OceanTriRecomp-Android-v1.6-arm64.apk}"
-fi
 
 echo "=== APK Successfully Built ==="
 ls -lh "${DEST_DIR}/${MH3_APK_NAME:-OceanTriRecomp-Android-v1.6-arm64.apk}"
