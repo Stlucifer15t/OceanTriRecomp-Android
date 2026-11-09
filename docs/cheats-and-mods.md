@@ -410,22 +410,36 @@ the change live (textures: index rebuild; audio/data: next load/step).
 compiler and runs them: no disc, no guest memory, no Aurora, a couple of
 minutes.
 
-**apk** builds and signs the release APK. Everything the build reads is in the
-repository — `generated/` (23,397 tracked files of translated game code),
-`aurora-main` (which vendors SDL3 and libpng from pinned tarballs) and
-`third_party/games-frame-pacing` (the Swappy static library) — so a plain
-`actions/checkout` is enough. It installs JDK 17, the NDK, CMake and Ninja,
-compiles OpenSSL for arm64 and caches it (the one external input; without it
-the game's SSL sessions fail), builds `libmain.so`, packages and signs with
-`packaging/android/build_apk.sh`, verifies with `apksigner`, uploads the APK as
-an artifact, and attaches it to a `v*` tag's release.
+**apk** builds and signs the release APK. It installs JDK 17, the .NET 8 SDK
+(the translator, `toolchain/translator`, emits the build shards during CMake
+configure), the NDK, CMake and Ninja; compiles OpenSSL for arm64 and caches it;
+builds `libmain.so`; packages and signs; verifies with `apksigner`; uploads the
+APK as an artifact and attaches it to a `v*` tag's release.
 
-The packaging script no longer assumes a machine layout: it takes
+### What CI cannot do from a hosted runner
+
+`recomp.yml` pins the disc: `inputs.dol` is `Assets/DATA/sys/main.dol` with a
+SHA-256, and `translation.function_map` is `build/MAP.txt`. Both are gitignored
+— they are the user's own ripped disc — so a GitHub-hosted runner cannot
+configure the project, and no workflow change can supply them. The APK job
+therefore checks for them first and stops with their names in an annotation:
+
+```
+recomp.yml needs: Assets/DATA/sys/main.dol build/MAP.txt - both are gitignored
+and come from the user's own disc.
+```
+
+To build on GitHub, run the workflow on a self-hosted runner that has the disc
+(`workflow_dispatch`, `runner=<label>`), or put the two files at those paths
+there. Everything else the build reads is in the repository: `generated/`
+(23,397 tracked files), `aurora-main` (vendored SDL3 and libpng) and
+`third_party/games-frame-pacing`.
+
+The packaging script assumes no machine layout: it takes
 `ANDROID_HOME`/`ANDROID_NDK_HOME`, finds the NDK's `llvm-strip` by host triple,
 and discovers the three libraries it packages in the CMake build tree (their
-paths are FetchContent's, so they are searched for). `MH3_LIBMAIN_SO`,
-`MH3_LIBPNG_SO` and `MH3_LIB_SDL3_SO` override them. Build locally with the
-same commands CI runs:
+paths are FetchContent's). `MH3_LIBMAIN_SO`, `MH3_LIBPNG_SO` and
+`MH3_LIB_SDL3_SO` override them.
 
 ```
 scripts/build-android.sh          # configure, build, package, sign
@@ -433,7 +447,8 @@ scripts/build-android.sh          # configure, build, package, sign
 
 Host tests are plain executables: `MH3GeckoTests` and `MH3CheatCatalogTests` in
 `runtime/CMakeLists.txt` (built when `MH3_BUILD_HOST_TESTS` is on), and the same
-two `g++` command lines in CI so they do not need the NDK.
+two `g++` command lines in CI, where they do run — the same checks, against the
+repository as pushed.
 
 ## 7. Testing strategy
 
