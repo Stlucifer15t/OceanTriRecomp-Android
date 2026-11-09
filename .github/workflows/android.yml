@@ -1,0 +1,138 @@
+name: Android
+
+# Host tests on every push and pull request; the release APK when the translated
+# game code is available.
+#
+# The APK target compiles ../generated: 23,170 translated functions and the
+# shard lists around them, about 630 MB. That tree is not in the repository - it
+# is produced from the disc - so a stock runner cannot build the APK. The `apk`
+# job therefore runs only when the tree is provided: set the repository variable
+# MH3_GENERATED_URL to an archive of `generated/` (a release asset or any URL
+# the runner can read) and it builds, packages and signs the APK from it. Until
+# then the job is skipped, visibly, instead of failing every push.
+#
+# The tests job needs neither the disc nor the translated code: the Gecko engine,
+# the bundled code library and the cheat catalog are pure C++ with a fake RAM.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The versions the local build uses (scripts/build-android.sh,
+  # packaging/android/build_apk.sh).
+  NDK_VERSION: 28.2.13676358
+  CMAKE_VERSION: 3.31.6
+  BUILD_TOOLS_VERSION: 35.0.0
+  APK_NAME: OceanTriRecomp-Android-v1.6-arm64.apk
+
+jobs:
+  tests:
+    name: Host tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Built directly with the runner's compiler rather than through CMake: the
+      # CMake targets sit inside a project that wants the NDK, and these need
+      # nothing but a C++20 compiler. Keeping them apart also means a broken
+      # test never looks like a broken renderer.
+      - name: Gecko engine and bundled library
+        working-directory: runtime
+        run: |
+          g++ -std=c++20 -O1 -Iinclude \
+            -o "$RUNNER_TEMP/MH3GeckoTests" \
+            src/gecko_tests.cpp src/gecko_parser.cpp \
+            src/gecko_engine.cpp src/gecko_db.cpp
+          "$RUNNER_TEMP/MH3GeckoTests"
+
+      - name: Cheat catalog
+        working-directory: runtime
+        run: |
+          g++ -std=c++20 -O1 -Iinclude \
+            -o "$RUNNER_TEMP/MH3CheatCatalogTests" \
+            src/cheat_catalog_tests.cpp src/cheat_catalog.cpp src/gecko_db.cpp
+          "$RUNNER_TEMP/MH3CheatCatalogTests"
+
+  apk:
+    name: Release APK (arm64)
+    runs-on: ubuntu-24.04
+    needs: tests
+    if: vars.MH3_GENERATED_URL != ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17' # build_apk.sh compiles the Java sources with --release 17
+
+      - name: Install the Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install the NDK, CMake and build tools
+        run: |
+          yes | sdkmanager --install \
+            "ndk;${NDK_VERSION}" \
+            "cmake;${CMAKE_VERSION}" \
+            "build-tools;${BUILD_TOOLS_VERSION}" \
+            "platforms;android-35" > /dev/null
+          sdkmanager --list_installed
+
+      - name: Point the build at the SDK
+        run: |
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "$ANDROID_SDK_ROOT/cmake/${CMAKE_VERSION}/bin" >> "$GITHUB_PATH"
+
+      # The translated game code, from the archive the repository variable names.
+      # It expands to ./generated, which is where the build expects it.
+      - name: Fetch the translated code
+        run: |
+          curl -fL --retry 3 -o "$RUNNER_TEMP/generated.tar.zst" "${{ vars.MH3_GENERATED_URL }}"
+          zstd -d --stdout "$RUNNER_TEMP/generated.tar.zst" | tar -xf - -C .
+          test -f generated/translation.json
+          test -d generated/functions
+
+      # Aurora's SDL3 and libpng are vendored: on a cross build the provider
+      # defaults to "vendor", so both are built here and land in the build tree
+      # next to libmain.so.
+      - name: Configure
+        run: |
+          cmake -S runtime -B build-android -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-29 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMH3_AURORA_ROOT="${GITHUB_WORKSPACE}/aurora-main" \
+            -DAURORA_SDL3_PROVIDER=vendor \
+            -DAURORA_SDL3_LINKAGE=shared
+
+      - name: Build
+        run: cmake --build build-android --target libmain.so --parallel "$(nproc)"
+
+      - name: Package and sign
+        run: bash packaging/android/build_apk.sh
+
+      - name: Check the APK
+        run: |
+          apk="release/${APK_NAME}"
+          test -f "$apk"
+          unzip -l "$apk" > "$RUNNER_TEMP/apk.txt"
+          grep -q 'lib/arm64-v8a/libmain.so' "$RUNNER_TEMP/apk.txt"
+          grep -q 'lib/arm64-v8a/libSDL3.so' "$RUNNER_TEMP/apk.txt"
+          grep -q 'classes.dex' "$RUNNER_TEMP/apk.txt"
+          # The generated code is compiled in, not shipped as data.
+          ! grep -q 'generated/' "$RUNNER_TEMP/apk.txt"
+          "${ANDROID_SDK_ROOT}/build-tools/${BUILD_TOOLS_VERSION}/apksigner" \
+            verify --print-certs "$apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OceanTriRecomp-Android-v1.6-arm64
+          path: release/OceanTriRecomp-Android-v1.6-arm64.apk
+          if-no-files-found: error

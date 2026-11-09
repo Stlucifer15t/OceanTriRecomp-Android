@@ -33,6 +33,8 @@
 #include "quest_placement.h"
 #include "quest_catalog.h"
 #include "launcher_cheats.h"
+#include "cheat_config.h"
+#include "gecko.h"
 #include "guest_worker.h"
 #include "net/online.h"
 #include "net/local_server.h"
@@ -1431,6 +1433,12 @@ int main(int argc, char** argv) {
         cpu.gpr[1] = 0x807AFCB8;
         cpu.msr = 0x8000;
         TranslatedFunctionRegistry::Finalize();
+
+        // The player's saved cheat and Gecko choices, after the command line
+        // has had its say (a --cheat switch wins over the file) and before the
+        // game starts, so the first step already sees them.
+        CheatConfig::Load();
+        Gecko::Initialize();
         std::cout << "Starting statically recompiled MH3 at 0x80006310\n";
 #if defined(ANDROID) || defined(__ANDROID__)
         std::thread([&cpu]() {
