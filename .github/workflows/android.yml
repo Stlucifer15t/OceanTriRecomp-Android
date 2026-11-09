@@ -126,6 +126,23 @@ jobs:
             "platforms;android-35" > /dev/null
           sdkmanager --list_installed
 
+      # CMake's configure runs scripts/prepare_native_dispatch.py, which shells
+      # out to the translator to emit the build shards. The translator is a .NET
+      # 8 command-line tool built from toolchain/translator (Translator.sln).
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build the translator
+        run: |
+          dotnet build toolchain/translator/Translator.sln \
+            -c Release --nologo -v minimal
+          dll="toolchain/translator/src/Translator.Cli/bin/Release/net8.0/Translator.Cli.dll"
+          test -f "$dll" || { echo "::error::the translator did not build: $dll missing"; exit 1; }
+          # prepare_native_dispatch.py defaults to tools/dotnet/dotnet; the SDK
+          # is on PATH here, so point DOTNET_BIN at it explicitly.
+          echo "DOTNET_BIN=$(command -v dotnet)" >> "$GITHUB_ENV"
+
       - name: Point the build at the SDK
         run: |
           # The runner image ships its own NDK (27.3) and already exports
