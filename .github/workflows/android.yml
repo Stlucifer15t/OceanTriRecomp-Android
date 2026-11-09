@@ -141,26 +141,60 @@ jobs:
           path: ${{ runner.temp }}/openssl-android-install
           key: openssl-${{ env.OPENSSL_VERSION }}-ndk${{ env.NDK_VERSION }}-arm64
 
+      # Best effort: the engine builds without TLS (MH3_HAS_OPENSSL is only
+      # defined when the libraries are found), so a failure here must not cost
+      # the APK. When it works, the APK gets working online play.
       - name: Build OpenSSL for arm64
+        id: openssl
+        continue-on-error: true
         if: steps.openssl-cache.outputs.cache-hit != 'true'
         run: |
           prefix="$RUNNER_TEMP/openssl-android-install"
           git clone --depth 1 --branch "openssl-${OPENSSL_VERSION}" \
             https://github.com/openssl/openssl.git "$RUNNER_TEMP/openssl"
           cd "$RUNNER_TEMP/openssl"
-          # -D__ANDROID_API__ must match ANDROID_PLATFORM below: the NDK's
-          # wrappers only know the API levels they were built for.
-          ./Configure android-arm64 no-shared no-tests no-docs \
+
+          # OpenSSL's 15-android.conf configures itself from the NDK: it reads
+          # $ANDROID_NDK_ROOT (not ANDROID_NDK_HOME), lists the API levels in
+          # the NDK's meta/platforms.json, and sets CC to the matching
+          # <triple><api>-clang from the NDK. Without the variable it dies with
+          # "ANDROID_NDK_ROOT is not defined" before doing anything.
+          export ANDROID_NDK_ROOT="${ANDROID_NDK_HOME}"
+
+          # -D__ANDROID_API__ must match ANDROID_PLATFORM in the engine build.
+          # no-shared: the APK links these statically, so there is no libssl.so
+          # to package. (No "no-docs": 3.0 has no such option.)
+          ./Configure android-arm64 no-shared no-tests \
             -D__ANDROID_API__=29 --prefix="$prefix" --openssldir="$prefix"
+
           make -j"$(nproc)" build_libs
-          make install_dev
-          test -f "$prefix/lib/libssl.a" && test -f "$prefix/lib/libcrypto.a"
+          make install_dev   # libraries and headers, not the openssl binary
+          test -f "$prefix/lib/libssl.a"
+          test -f "$prefix/lib/libcrypto.a"
+
+      - name: Diagnose OpenSSL
+        if: steps.openssl.outcome == 'failure'
+        run: |
+          {
+            echo "ANDROID_NDK_ROOT=${ANDROID_NDK_ROOT:-unset}"
+            echo "ANDROID_NDK_HOME=${ANDROID_NDK_HOME:-unset}"
+            ls -1 "${ANDROID_NDK_HOME}/meta/" 2>&1 | head -5
+            grep -o '"max": *[0-9]*' "${ANDROID_NDK_HOME}/meta/platforms.json" 2>&1 | head -3
+            cat "${RUNNER_TEMP}/openssl/configdata.pm" 2>/dev/null | grep -iE "^\s*(CC|target|sysroot|options)" | head -10
+            ls -1 "${RUNNER_TEMP}/openssl-android-install/lib/" 2>&1 | head -10
+          } > "$RUNNER_TEMP/ssl-diag.txt" 2>&1
+          cat "$RUNNER_TEMP/ssl-diag.txt"
+          while IFS= read -r line; do
+            echo "::error title=OpenSSL diagnostics::$line"
+          done < "$RUNNER_TEMP/ssl-diag.txt"
 
       # The runtime reads OPENSSL_ANDROID_DIR from the environment (see
       # runtime/CMakeLists.txt) and links libssl/libcrypto when it finds them.
       - name: Configure
         env:
-          OPENSSL_ANDROID_DIR: ${{ runner.temp }}/openssl-android-install
+          # Only hand the runtime the libraries if they were really built:
+          # runtime/CMakeLists.txt links them whenever the directory exists.
+          OPENSSL_ANDROID_DIR: ${{ steps.openssl.outcome == 'success' && format('{0}/openssl-android-install', runner.temp) || '' }}
         run: |
           cmake -S runtime -B build-android -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
@@ -171,8 +205,22 @@ jobs:
             -DAURORA_SDL3_PROVIDER=vendor \
             -DAURORA_SDL3_LINKAGE=shared
 
+      - name: Report TLS
+        run: |
+          if [ -n "${OPENSSL_ANDROID_DIR:-}" ]; then
+            echo "TLS: linked (OpenSSL ${OPENSSL_VERSION})"
+          else
+            echo "::warning title=No TLS::OpenSSL for arm64 was not built, so this APK's online play has no TLS"
+          fi
+
       - name: Build
-        run: cmake --build build-android --target libmain.so --parallel "$(nproc)"
+        run: |
+          cmake --build build-android --target libmain.so --parallel "$(nproc)"
+          # Did the engine really pick the libraries up?
+          if [ -n "${OPENSSL_ANDROID_DIR:-}" ] && \
+             ! grep -q 'MH3_HAS_OPENSSL' build-android/CMakeFiles/MH3.dir/flags.make 2>/dev/null; then
+            echo "::warning title=TLS not linked::OPENSSL_ANDROID_DIR was set but the engine did not define MH3_HAS_OPENSSL"
+          fi
 
       - name: Package and sign
         run: bash packaging/android/build_apk.sh
