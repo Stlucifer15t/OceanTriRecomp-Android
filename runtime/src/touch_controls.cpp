@@ -1,7 +1,13 @@
 #include "touch_controls.h"
+
 #include "android_keyboard.h"
+#include "cheat_catalog.h"
+#include "cheat_config.h"
 #include "droid_sans_atlas.h"
+#include "gecko.h"
 #include "language.h"
+#include "launcher_cheats.h"
+#include "mod_manager.h"
 #include "save_manager.h"
 #include "mh3_frame_rate_control.h"
 #include "widescreen.h"
@@ -1905,8 +1911,8 @@ private:
         DrawRoundedRect(padX, padY, panW, panH, 18.0f * S, COL_BG_DARK, COL_PANEL_BORDER);
 
         // Header Title & Subtitle
-        const char* titles_es[] = { "Gráficos", "Sistema", "Guardados", "Controles", "Online" };
-        const char* titles_en[] = { "Graphics", "System", "Saves", "Controls", "Online" };
+        const char* titles_es[] = { "Gráficos", "Sistema", "Guardados", "Controles", "Online", "Trucos", "Mods" };
+        const char* titles_en[] = { "Graphics", "System", "Saves", "Controls", "Online", "Cheats", "Mods" };
         const char* const* titles = (m_menuLang == 1) ? titles_en : titles_es;
 
         const char* subtitles_es[] = {
@@ -1914,14 +1920,18 @@ private:
             "Idioma del menú, idioma del juego y reinicio rápido",
             "Gestor de partidas guardadas (Dolphin / Wii NAND)",
             "Controles táctiles, diseño de botones (.PNG), mando y macros",
-            "Multijugador online en servidores comunitarios MH3SP"
+            "Multijugador online en servidores comunitarios MH3SP",
+            "Trucos nativos y c\u00f3digos Gecko importados, sin conexi\u00f3n",
+            "Mods instalados junto al juego (archivos del disco, texturas y modelos)"
         };
         const char* subtitles_en[] = {
             "Display, resolution, framerate and lighting",
             "Menu language, game language and quick restart",
             "Save file manager (Dolphin / Wii NAND)",
             "Touch controls, custom button skins (.PNG), gamepad and macros",
-            "Online multiplayer on MH3SP community servers"
+            "Online multiplayer on MH3SP community servers",
+            "Native cheats and imported Gecko codes, fully offline",
+            "Mods installed beside the game (disc files, textures, models)"
         };
         const char* const* subtitles = (m_menuLang == 1) ? subtitles_en : subtitles_es;
 
@@ -1952,10 +1962,10 @@ private:
 
         // Tab Navigation Bar
         float tabY = divY + 10.0f * S;
-        float tabGap = 10.0f * S;
-        float tabW = (panW - 44.0f * S - tabGap * 4.0f) / 5.0f;
-        float tabH = 50.0f * S;
-        for (int i = 0; i < 5; ++i) {
+        float tabGap = 8.0f * S;
+        float tabW = (panW - 44.0f * S - tabGap * 6.0f) / 7.0f;
+        float tabH = 44.0f * S;
+        for (int i = 0; i < kMenuTabs; ++i) {
             float tx = padX + 22.0f * S + float(i) * (tabW + tabGap);
             bool active = (m_menuTab == i);
             DrawInteractiveButton(tx, tabY, tabW, tabH, S, titles[i], active, [this, i]() {
@@ -1993,6 +2003,8 @@ private:
         else if (m_menuTab == 2) totalContentH = RenderTabSaves(contentX, startY, contentW, S);
         else if (m_menuTab == 3) totalContentH = RenderTabControls(contentX, startY, contentW, S);
         else if (m_menuTab == 4) totalContentH = RenderTabOnline(contentX, startY, contentW, S);
+        else if (m_menuTab == 5) totalContentH = RenderTabCheats(contentX, startY, contentW, S);
+        else if (m_menuTab == 6) totalContentH = RenderTabMods(contentX, startY, contentW, S);
 
         ClearScissorClip();
 
@@ -2563,6 +2575,278 @@ private:
         DrawText(x + 24.0f * S, curY + 17.0f * S, Tr("Estado:", "Status:"), 15.5f * S, COL_CYAN);
         DrawText(x + 95.0f * S, curY + 17.0f * S, m_onlineStatusMsg.c_str(), 15.5f * S, COL_WHITE);
         curY += bannerH;
+
+        return curY - y;
+    }
+
+    // ---------------------------------------------------------------------
+    // Cheats: the 261 native cheats and the Gecko codes, both fully offline.
+
+    float RenderTabCheats(float x, float y, float w, float S) {
+        float curY = y;
+        const float gap = 14.0f * S;
+        const float rowH = 46.0f * S;
+        const size_t kRowLimit = 400; // the manager's rows are scrolled, not paged
+
+        // Live / Gecko switch.
+        float cardH = 118.0f * S;
+        DrawModernCard(x, curY, w, cardH, S,
+                       Tr("Trucos del juego", "Game cheats"),
+                       Tr("Se aplican al instante. Los trucos nativos y los c\u00f3digos Gecko "
+                          "importados se guardan y funcionan sin conexi\u00f3n.",
+                          "Applied instantly. Native cheats and imported Gecko codes are saved "
+                          "and work offline."));
+
+        const char* chipLabels[] = {
+            Tr("Nativos", "Native"),
+            Tr("Gecko", "Gecko"),
+        };
+        float chipW = (w - 48.0f * S - 12.0f * S) / 2.0f;
+        for (int i = 0; i < 2; ++i) {
+            DrawInteractiveButton(x + 24.0f * S + float(i) * (chipW + 12.0f * S), curY + 66.0f * S,
+                                  chipW, 40.0f * S, S, chipLabels[i], (m_cheatTab == i), [this, i]() {
+                m_cheatTab = i;
+            });
+        }
+        curY += cardH + gap;
+
+        if (m_cheatTab == 1)
+            return curY - y + RenderCheatsGecko(x, curY, w, S);
+
+        // The native cheats, grouped by their list's category.
+        size_t shown = 0;
+
+        // The sections are the catalog's (cheat_catalog.h), walking them in the
+        // catalog's order: the port's table groups by who wrote the original
+        // code, which is history, and a player looking for "never poison" would
+        // have to scan 88 rows of one author's codes.
+        for (size_t section = 0; section < CheatCatalog::kCategoryCount; ++section) {
+            const auto category = CheatCatalog::Category(section);
+            size_t inSection = 0;
+
+            for (size_t i = 0; i < LauncherCheats::List().size(); ++i)
+                inSection += size_t(CheatCatalog::Of(LauncherCheats::List()[i].name ? LauncherCheats::List()[i].name
+                                                     : "")) == section;
+
+            if (inSection == 0)
+                continue;
+
+            DrawText(x + 6.0f * S, curY + 10.0f * S, CheatCatalog::Name(category), 16.0f * S, COL_CYAN);
+            curY += 28.0f * S;
+
+            for (size_t i = 0; i < LauncherCheats::List().size() && shown < kRowLimit; ++i) {
+                const LauncherCheats::Cheat& cheat = LauncherCheats::List()[i];
+
+                if (size_t(CheatCatalog::Of(cheat.name ? cheat.name : "")) != section)
+                    continue;
+
+                DrawRoundedRect(x + 24.0f * S, curY, w - 48.0f * S, rowH, 8.0f * S,
+                                { 0.03f, 0.10f, 0.145f, 0.92f }, COL_PANEL_BORDER);
+
+                const bool on = LauncherCheats::Enabled(i);
+                char label[220];
+                std::snprintf(label, sizeof(label), "%s%s", on ? "\u2713 " : "",
+                              cheat.name ? cheat.name : "");
+                DrawText(x + 40.0f * S, curY + 8.0f * S, label, 15.5f * S, on ? COL_ACTIVE_TEXT : COL_WHITE);
+
+                if (cheat.detail)
+                    DrawText(x + 40.0f * S, curY + 26.0f * S, cheat.detail, 12.0f * S, COL_MUTED);
+
+                // A value the cheat takes: cycle through its options in place.
+                if (LauncherCheats::Choices(i) > 1) {
+                    const std::string value = LauncherCheats::ValueLabel(i);
+                    char valueLabel[96];
+                    std::snprintf(valueLabel, sizeof(valueLabel), " \u2039 %s \u203a", value.c_str());
+                    DrawInteractiveButton(x + w - 300.0f * S, curY + 6.0f * S, 240.0f * S, 34.0f * S, S,
+                                          valueLabel, false, [i]() {
+                        const size_t next = (LauncherCheats::Selected(i) + 1) % LauncherCheats::Choices(i);
+                        LauncherCheats::Select(i, next);
+                        LauncherCheats::Enable(i, true);
+                        CheatConfig::SaveOne(i);
+                    }, 14.0f * S);
+                }
+
+                DrawInteractiveButton(x + w - 56.0f * S, curY + 8.0f * S, 32.0f * S, 30.0f * S, S,
+                                      on ? "\u2715" : "+", false, [i, on]() {
+                    LauncherCheats::Enable(i, !on);
+                    CheatConfig::SaveOne(i);
+                }, 16.0f * S, on ? Color{ 0.30f, 0.10f, 0.14f, 0.95f } : Color{ 0.08f, 0.28f, 0.22f, 0.95f },
+                                      on ? Color{ 0.85f, 0.35f, 0.40f, 1.0f } : Color{ 0.35f, 0.90f, 0.62f, 1.0f });
+
+                curY += rowH + 6.0f * S;
+                ++shown;
+            }
+
+            curY += 8.0f * S;
+        }
+
+        if (shown == 0)
+            DrawText(x + 24.0f * S, curY, Tr("No hay trucos cargados.", "No cheats loaded."), 15.0f * S, COL_MUTED);
+
+        return curY - y;
+    }
+
+    float RenderCheatsGecko(float x, float y, float w, float S) {
+        float curY = y;
+        const float gap = 10.0f * S;
+        const float rowH = 52.0f * S;
+
+        Gecko::Initialize();
+        const std::vector<Gecko::Entry>& entries = Gecko::Entries();
+
+        // The header: how many are on, and the two file actions.
+        char header[200];
+        std::snprintf(header, sizeof(header),
+                      Tr("%zu c\u00f3digos, %zu activos", "%zu codes, %zu enabled"),
+                      entries.size(), Gecko::EnabledCount());
+        DrawText(x + 6.0f * S, curY + 4.0f * S, header, 13.0f * S, COL_MUTED);
+
+        char subheader[220];
+        std::snprintf(subheader, sizeof(subheader),
+                      Tr("%zu se ejecutan aqu\u00ed, %zu usan su truco nativo",
+                         "%zu run here, %zu use their native cheat"),
+                      Gecko::RunnableCount(), Gecko::NativeBackedCount());
+        DrawText(x + 6.0f * S, curY + 22.0f * S, subheader, 12.0f * S, COL_MUTED);
+        curY += 44.0f * S;
+
+        DrawInteractiveButton(x + 24.0f * S, curY, (w - 48.0f * S - 12.0f * S) / 2.0f, 40.0f * S, S,
+                              Tr("Guardar lista", "Save list"), false, []() { Gecko::Save(); }, 15.0f * S);
+        DrawInteractiveButton(x + 24.0f * S + (w - 48.0f * S - 12.0f * S) / 2.0f + 12.0f * S, curY,
+                              (w - 48.0f * S - 12.0f * S) / 2.0f, 40.0f * S, S,
+                              Tr("Recargar del archivo", "Reload from file"), false,
+                              []() { Gecko::Initialize(); }, 15.0f * S);
+        curY += 52.0f * S;
+
+        std::string lastGroup;
+        size_t runnable = 0, running = 0;
+
+        for (size_t i = 0; i < entries.size(); ++i) {
+            const Gecko::Entry& entry = entries[i];
+            const bool canRun = entry.blocked.empty();
+            const bool on = entry.enabled;
+
+            runnable += canRun;
+            running += canRun && on;
+
+            // The library's categories, so a 260-code list reads as sections.
+            const std::string_view group = entry.group;
+            if (!group.empty() && group != lastGroup) {
+                if (!lastGroup.empty())
+                    curY += 8.0f * S;
+                DrawText(x + 6.0f * S, curY + 10.0f * S, std::string(group).c_str(), 16.0f * S, COL_CYAN);
+                curY += 28.0f * S;
+                lastGroup = group;
+            }
+
+            DrawRoundedRect(x + 24.0f * S, curY, w - 48.0f * S, rowH, 8.0f * S,
+                            { 0.03f, 0.10f, 0.145f, 0.92f }, canRun ? COL_PANEL_BORDER
+                                                                     : Color{ 0.35f, 0.22f, 0.12f, 0.9f });
+
+            char label[220];
+            std::snprintf(label, sizeof(label), "%s%s", on ? "\u2713 " : "", entry.code.name.c_str());
+            DrawText(x + 40.0f * S, curY + 8.0f * S, label, 15.0f * S, canRun ? COL_WHITE : COL_MUTED);
+
+            // What a code that cannot run needs instead: the native cheat of
+            // the same name, or the reason it cannot work here.
+            std::string detail = canRun ? entry.code.note : entry.blocked;
+
+            if (!canRun && !entry.native.empty())
+                detail = Tr("Usa el truco nativo \u00ab", "Use the native cheat \"") + entry.native + "\"";
+
+            if (!detail.empty())
+                DrawText(x + 40.0f * S, curY + 28.0f * S, detail.c_str(), 11.5f * S, COL_MUTED);
+
+            if (canRun) {
+                DrawInteractiveButton(x + w - 56.0f * S, curY + 10.0f * S, 32.0f * S, 30.0f * S, S,
+                                      on ? "\u2715" : "+", false, [i, on]() {
+                    Gecko::SetEnabled(i, !on);
+                }, 16.0f * S,
+                                      on ? Color{ 0.30f, 0.10f, 0.14f, 0.95f } : Color{ 0.08f, 0.28f, 0.22f, 0.95f },
+                                      on ? Color{ 0.85f, 0.35f, 0.40f, 1.0f } : Color{ 0.35f, 0.90f, 0.62f, 1.0f });
+            }
+
+            if (const std::string error = Gecko::LastError(i); !error.empty())
+                DrawText(x + 40.0f * S, curY + 40.0f * S, error.c_str(), 10.5f * S, { 1.0f, 0.55f, 0.45f, 1.0f });
+
+            curY += rowH + 6.0f * S;
+        }
+
+        (void)gap;
+        return curY - y;
+    }
+
+    // ---------------------------------------------------------------------
+    // Mods: what is installed beside the game, and whether it was applied.
+
+    float RenderTabMods(float x, float y, float w, float S) {
+        float curY = y;
+        const float gap = 14.0f * S;
+        const float rowH = 62.0f * S;
+
+        Mods::Initialize();
+        const std::vector<Mods::Mod>& mods = Mods::List();
+
+        float cardH = 128.0f * S;
+        DrawModernCard(x, curY, w, cardH, S,
+                       Tr("Mods instalados", "Installed mods"),
+                       Tr("Cada mod es una carpeta con un mod.ini en la carpeta mods. "
+                          "Los archivos del disco se sirven desde memoria: el disco no se modifica.",
+                          "Each mod is a directory with a mod.ini in the mods folder. Disc files "
+                          "are served from memory: the disc itself is never changed."));
+
+        char folder[320];
+        std::snprintf(folder, sizeof(folder), "%s", Mods::UserDirectory().c_str());
+        DrawText(x + 24.0f * S, curY + 70.0f * S, folder, 12.5f * S, COL_CYAN);
+
+        DrawInteractiveButton(x + 24.0f * S, curY + 88.0f * S, (w - 48.0f * S - 12.0f * S) * 0.5f, 32.0f * S, S,
+                              Tr("Buscar de nuevo", "Rescan"), false, []() { Mods::Rescan(); }, 13.5f * S);
+        DrawInteractiveButton(x + 24.0f * S + (w - 48.0f * S - 12.0f * S) * 0.5f + 12.0f * S,
+                              curY + 88.0f * S, (w - 48.0f * S - 12.0f * S) * 0.5f, 32.0f * S, S,
+                              Tr("Aplicar ahora", "Apply now"), false, []() { Mods::Apply(); }, 13.5f * S);
+        curY += cardH + gap;
+
+        if (mods.empty()) {
+            DrawText(x + 24.0f * S, curY, Tr("No hay ning\u00fan mod instalado.", "No mods installed."), 15.0f * S, COL_MUTED);
+            return curY - y + 40.0f * S;
+        }
+
+        for (size_t i = 0; i < mods.size(); ++i) {
+            const Mods::Mod& mod = mods[i];
+            const bool usable = mod.problem.empty();
+            const bool on = mod.enabled;
+
+            DrawRoundedRect(x + 24.0f * S, curY, w - 48.0f * S, rowH, 8.0f * S,
+                            { 0.03f, 0.10f, 0.145f, 0.92f }, usable ? COL_PANEL_BORDER
+                                                                   : Color{ 0.35f, 0.22f, 0.12f, 0.9f });
+
+            char label[240];
+            std::snprintf(label, sizeof(label), "%s%s%s%s", on ? "\u2713 " : "", mod.name.c_str(),
+                          mod.version.empty() ? "" : "  ", mod.version.c_str());
+            DrawText(x + 40.0f * S, curY + 8.0f * S, label, 15.5f * S, usable ? COL_WHITE : COL_MUTED);
+
+            std::string detail;
+
+            if (!mod.author.empty())
+                detail = Tr("por ", "by ") + mod.author + "  \u2022  ";
+
+            if (!usable)
+                detail += mod.problem;
+            else
+                detail += std::to_string(mod.appliedFiles) + Tr(" archivo(s) aplicados", " file(s) applied");
+
+            DrawText(x + 40.0f * S, curY + 32.0f * S, detail.c_str(), 12.0f * S, COL_MUTED);
+
+            if (usable) {
+                DrawInteractiveButton(x + w - 56.0f * S, curY + 14.0f * S, 32.0f * S, 30.0f * S, S,
+                                      on ? "\u2715" : "+", false, [i, on]() {
+                    Mods::SetEnabled(i, !on);
+                }, 16.0f * S,
+                                      on ? Color{ 0.30f, 0.10f, 0.14f, 0.95f } : Color{ 0.08f, 0.28f, 0.22f, 0.95f },
+                                      on ? Color{ 0.85f, 0.35f, 0.40f, 1.0f } : Color{ 0.35f, 0.90f, 0.62f, 1.0f });
+            }
+
+            curY += rowH + 6.0f * S;
+        }
 
         return curY - y;
     }
@@ -4389,7 +4673,10 @@ private:
     // Settings Menu & Options State
     bool m_menuOpen = false;
     bool m_restarting = false;
+    // Graphics, System, Saves, Controls, Online, Cheats, Mods.
+    static constexpr int kMenuTabs = 7;
     int m_menuTab = 0;
+    int m_cheatTab = 0; // 0 native cheats, 1 Gecko codes
     int m_resolutionIndex = 0; // 0: Wii Original (1x)
     int m_aspectIndex = 0;     // 16:9 Panorámica (default)
     bool m_fullscreen = false;

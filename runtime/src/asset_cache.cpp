@@ -2,6 +2,7 @@
 #include "fatal.h"
 #include "fs_status.h"
 #include "disc_image.h"
+#include "mod_manager.h"
 #include "launcher_convert.h"
 #include "load_progress.h"
 #include <aurora/thread_role.hpp>
@@ -1527,6 +1528,15 @@ struct Game {
     DiscImage image;
     std::unique_ptr<AssetCache> cache;
     explicit Game(const char* root) : image(root) {
+        // The mods installed beside the game (mod_manager.h), before anything
+        // reads the image: an override is memory only, so the disc's own bytes
+        // stay untouched and each file keeps the length the FST stores.
+        Mods::Initialize();
+        Mods::Apply();
+
+        for (const std::string& error : Mods::Errors())
+            std::fprintf(stderr, "MH3 mods: %s\n", error.c_str());
+
         if (!image.Packed() || image.HasNativeTextureMap() || std::getenv("MH3_NATIVE_ASSET_DIR"))
             return;
 

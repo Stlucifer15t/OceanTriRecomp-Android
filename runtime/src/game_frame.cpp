@@ -13,6 +13,7 @@
 // 2 logic, 3 draw, 4 done).
 #include "abi_bridge.h"
 #include "cheats.h"
+#include "gecko.h"
 #include "monster_control.h"
 #include "fatal.h"
 #include "frame_split.h"
@@ -681,6 +682,7 @@ extern "C" void MH3_GameFrame(CpuContext* ctx) {
         GameTasks::SkipStrapScreen();
         StepVillageBoot(ctx);
         Cheats::Step(ctx);
+        Gecko::Step();
         MonsterControl::Step(ctx);
 #if defined(MH3_DEVELOPMENT) && !defined(__vita__)
         DebugPort::Step(ctx);

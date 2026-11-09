@@ -1,0 +1,357 @@
+name: Android
+
+# Builds the release APK on GitHub and runs the host tests.
+#
+# Everything the build reads is in the repository: generated/ (the translated
+# game code, 23,397 tracked files), aurora-main (the renderer, which vendors
+# SDL3 and libpng from pinned tarballs) and third_party/games-frame-pacing (the
+# Swappy static library). The only external input is OpenSSL, which the build
+# links when it is present and which this workflow compiles for the NDK.
+#
+#   tests  the host check executables. Pure C++, no disc, no guest memory, no
+#          Aurora: a couple of minutes, and it catches a broken code list or a
+#          stale catalog row before spending twenty minutes on an APK.
+#   apk    the arm64 release build, packaging and signing. Uploads the signed
+#          APK as an artifact and, on a tag, attaches it to the release.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: 'Runner label. "ubuntu-24.04" is GitHub-hosted and cannot see the disc.'
+        required: false
+        default: 'ubuntu-24.04'
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The versions the local build uses (scripts/build-android.sh,
+  # packaging/android/build_apk.sh).
+  NDK_VERSION: 28.2.13676358
+  CMAKE_VERSION: 3.31.6
+  BUILD_TOOLS_VERSION: 35.0.0
+  APK_NAME: OceanTriRecomp-Android-v1.6-arm64.apk
+  OPENSSL_VERSION: 3.0.15
+
+jobs:
+  tests:
+    name: Host tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Built directly with the runner's compiler rather than through CMake: the
+      # CMake targets sit in a project that wants the NDK, and these need
+      # nothing but a C++20 compiler. Keeping them apart also means a broken
+      # test never looks like a broken renderer.
+      - name: Gecko engine and bundled library
+        working-directory: runtime
+        run: |
+          set -o pipefail
+          g++ -std=c++20 -O1 -Wall -Wextra -Iinclude \
+            -o "$RUNNER_TEMP/MH3GeckoTests" \
+            src/gecko_tests.cpp src/gecko_parser.cpp \
+            src/gecko_engine.cpp src/gecko_db.cpp 2>&1 | tee "$RUNNER_TEMP/gecko.log"
+          "$RUNNER_TEMP/MH3GeckoTests" 2>&1 | tee "$RUNNER_TEMP/gecko-test.log"
+
+      - name: Cheat catalog
+        working-directory: runtime
+        run: |
+          set -o pipefail
+          g++ -std=c++20 -O1 -Wall -Wextra -Iinclude \
+            -o "$RUNNER_TEMP/MH3CheatCatalogTests" \
+            src/cheat_catalog_tests.cpp src/cheat_catalog.cpp src/gecko_db.cpp \
+            2>&1 | tee "$RUNNER_TEMP/catalog.log"
+          "$RUNNER_TEMP/MH3CheatCatalogTests" 2>&1 | tee "$RUNNER_TEMP/catalog-test.log"
+
+      - name: Report failures
+        if: failure()
+        run: |
+          for log in gecko.log gecko-test.log catalog.log catalog-test.log; do
+            if [ -s "$RUNNER_TEMP/$log" ]; then
+              echo "--- $log"
+              grep -E 'error|FAIL|checks,' "$RUNNER_TEMP/$log" | head -20 || true
+              while IFS= read -r line; do
+                echo "::error file=runtime,title=$log::$line"
+              done < <(grep -E 'error:|FAIL' "$RUNNER_TEMP/$log" | head -5)
+            fi
+          done
+
+  apk:
+    name: Release APK (arm64)
+    runs-on: ${{ github.event.inputs.runner || 'ubuntu-24.04' }}
+    needs: tests
+    steps:
+      # The translated code is ~630 MB on disk, so a shallow checkout saves a lot
+      # of time and none of it is needed: the build wants the tree, not history.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          lfs: true
+
+      # recomp.yml pins the disc's main.dol by SHA-256 and names the function map
+      # next to it; both are gitignored, because they are the user's own ripped
+      # disc. A hosted runner has neither, and without them the translator
+      # refuses to configure - so say so here, by name, instead of twenty
+      # minutes later inside CMake.
+      - name: Check the disc inputs
+        run: |
+          missing=""
+          [ -f "Assets/DATA/sys/main.dol" ] || missing="$missing Assets/DATA/sys/main.dol"
+          [ -f "build/MAP.txt" ] || missing="$missing build/MAP.txt"
+          if [ -n "$missing" ]; then
+            echo "::error title=Build inputs missing::recomp.yml needs:$missing - both are gitignored and come from the user's own disc. Run this workflow on a self-hosted runner that has them (workflow_dispatch with runner=<your label>), or provide them at those paths."
+            exit 1
+          fi
+          echo "disc inputs present: $(ls -l Assets/DATA/sys/main.dol | awk '{print $5}') bytes of DOL"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17' # build_apk.sh compiles the Java sources with --release 17
+
+      - name: Install the Android SDK
+        uses: android-actions/setup-android@v4.0.4
+
+      # The SDK step is the one piece of this workflow that is not plain shell.
+      # If it fails, say what the runner actually has, as annotations: the run
+      # log is a large download that not every client can read.
+      - name: Diagnose the SDK
+        if: failure()
+        run: |
+          {
+            echo "java: $(java -version 2>&1 | head -1)"
+            echo "ANDROID_HOME=${ANDROID_HOME:-unset}"
+            echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
+            echo "sdkmanager: $(command -v sdkmanager || echo missing)"
+            command -v sdkmanager > /dev/null && sdkmanager --version 2>&1 | head -3
+            echo "runner image: ${ImageOS:-unknown} ${ImageVersion:-}"
+            ls -1 "${ANDROID_HOME:-/nonexistent}" 2>&1 | head -10
+          } > "$RUNNER_TEMP/sdk-diag.txt" 2>&1
+          cat "$RUNNER_TEMP/sdk-diag.txt"
+          while IFS= read -r line; do
+            echo "::error title=SDK diagnostics::$line"
+          done < "$RUNNER_TEMP/sdk-diag.txt"
+
+      - name: Install the NDK, CMake and build tools
+        run: |
+          yes | sdkmanager --install \
+            "ndk;${NDK_VERSION}" \
+            "cmake;${CMAKE_VERSION}" \
+            "build-tools;${BUILD_TOOLS_VERSION}" \
+            "platforms;android-35" > /dev/null
+          sdkmanager --list_installed
+
+      # CMake's configure runs scripts/prepare_native_dispatch.py, which shells
+      # out to the translator to emit the build shards. The translator is a .NET
+      # 8 command-line tool built from toolchain/translator (Translator.sln).
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build the translator
+        id: translator
+        run: |
+          # The CLI project, not the solution: the solution includes
+          # Translator.Tests, which copies a test asset that is not in the
+          # repository (TestAssets/RetroWfcPayload/binary/payload.RMCPD00.bin)
+          # and fails the build. Only the CLI is needed here.
+          dotnet build toolchain/translator/src/Translator.Cli/Translator.Cli.csproj \
+            -c Release --nologo -v minimal > "$RUNNER_TEMP/dotnet.log" 2>&1 \
+            || { tail -25 "$RUNNER_TEMP/dotnet.log"; exit 1; }
+          dll="toolchain/translator/src/Translator.Cli/bin/Release/net8.0/Translator.Cli.dll"
+          test -f "$dll" || { echo "::error::the translator did not build: $dll missing"; exit 1; }
+          # prepare_native_dispatch.py defaults to tools/dotnet/dotnet; the SDK
+          # is on PATH here, so point DOTNET_BIN at it explicitly.
+          echo "DOTNET_BIN=$(command -v dotnet)" >> "$GITHUB_ENV"
+
+      - name: Diagnose the translator build
+        if: failure() && steps.translator.outcome == 'failure'
+        run: |
+          tail -25 "$RUNNER_TEMP/dotnet.log" > "$RUNNER_TEMP/dn.txt" 2>&1 || true
+          while IFS= read -r line; do
+            [ -n "$line" ] && echo "::error title=dotnet build::$line"
+          done < "$RUNNER_TEMP/dn.txt"
+
+      - name: Point the build at the SDK
+        run: |
+          # The runner image ships its own NDK (27.3) and already exports
+          # ANDROID_NDK_ROOT to it. Pin both names to the version this build
+          # uses, so OpenSSL and the engine cannot be configured against
+          # different NDKs.
+          ndk="${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}"
+          {
+            echo "ANDROID_NDK_HOME=${ndk}"
+            echo "ANDROID_NDK_ROOT=${ndk}"
+          } >> "$GITHUB_ENV"
+          echo "$ANDROID_SDK_ROOT/cmake/${CMAKE_VERSION}/bin" >> "$GITHUB_PATH"
+          test -d "$ndk" || { echo "::error::no NDK at $ndk"; exit 1; }
+
+      # OpenSSL for arm64: without it the game's SSL sessions fail and online
+      # play is left without TLS (net/net_host_posix.cpp), so the release APK
+      # carries it. Cached on the version, since it is a few minutes of build.
+      - name: Cache OpenSSL
+        id: openssl-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/openssl-android-install
+          key: openssl-${{ env.OPENSSL_VERSION }}-ndk${{ env.NDK_VERSION }}-arm64
+
+      # Best effort: the engine builds without TLS (MH3_HAS_OPENSSL is only
+      # defined when the libraries are found), so a failure here must not cost
+      # the APK. When it works, the APK gets working online play.
+      - name: Build OpenSSL for arm64
+        id: openssl
+        continue-on-error: true
+        if: steps.openssl-cache.outputs.cache-hit != 'true'
+        run: |
+          prefix="$RUNNER_TEMP/openssl-android-install"
+          git clone --depth 1 --branch "openssl-${OPENSSL_VERSION}" \
+            https://github.com/openssl/openssl.git "$RUNNER_TEMP/openssl"
+          cd "$RUNNER_TEMP/openssl"
+
+          # OpenSSL's 15-android.conf configures itself from the NDK: it reads
+          # $ANDROID_NDK_ROOT (not ANDROID_NDK_HOME), lists the API levels in
+          # the NDK's meta/platforms.json, and sets CC to the matching
+          # <triple><api>-clang from the NDK. Without the variable it dies with
+          # "ANDROID_NDK_ROOT is not defined" before doing anything.
+          export ANDROID_NDK_ROOT="${ANDROID_NDK_HOME}"
+
+          # -D__ANDROID_API__ must match ANDROID_PLATFORM in the engine build.
+          # no-shared: the APK links these statically, so there is no libssl.so
+          # to package. (No "no-docs": 3.0 has no such option.)
+          # --libdir=lib: a 64-bit target's default is lib64, and a static-only
+          # build with no --libdir leaves $prefix/lib empty (the first run of
+          # this step "succeeded" and installed nothing).
+          ./Configure android-arm64 no-shared no-tests \
+            -D__ANDROID_API__=29 --prefix="$prefix" --openssldir="$prefix" \
+            --libdir=lib
+
+          make -j"$(nproc)" build_libs
+
+          # Copy the libraries and headers here rather than through OpenSSL's
+          # install targets: with no-shared, install_dev's install_runtime_libs
+          # only copies INSTALL_SHLIBS, which is empty - the step reported
+          # success and installed nothing, leaving $prefix/lib missing.
+          mkdir -p "$prefix/lib" "$prefix/include/openssl"
+          cp -f libssl.a libcrypto.a "$prefix/lib/"
+          cp -f include/openssl/*.h "$prefix/include/openssl/"
+          cp -f include/openssl/configuration.h include/openssl/opensslconf.h \
+            "$prefix/include/openssl/" 2>/dev/null || true
+
+          test -f "$prefix/lib/libssl.a"
+          test -f "$prefix/lib/libcrypto.a"
+          test -f "$prefix/include/openssl/ssl.h"
+          ls -l "$prefix/lib" "$prefix/include/openssl" | head -20
+
+      - name: Diagnose OpenSSL
+        if: steps.openssl.outcome == 'failure'
+        run: |
+          {
+            echo "ANDROID_NDK_ROOT=${ANDROID_NDK_ROOT:-unset}"
+            echo "ANDROID_NDK_HOME=${ANDROID_NDK_HOME:-unset}"
+            ls -1 "${ANDROID_NDK_HOME}/meta/" 2>&1 | head -5
+            grep -o '"max": *[0-9]*' "${ANDROID_NDK_HOME}/meta/platforms.json" 2>&1 | head -3
+            cat "${RUNNER_TEMP}/openssl/configdata.pm" 2>/dev/null | grep -iE "^\s*(CC|target|sysroot|options)" | head -10
+            ls -1 "${RUNNER_TEMP}/openssl-android-install/lib/" 2>&1 | head -10
+          } > "$RUNNER_TEMP/ssl-diag.txt" 2>&1
+          cat "$RUNNER_TEMP/ssl-diag.txt"
+          while IFS= read -r line; do
+            echo "::error title=OpenSSL diagnostics::$line"
+          done < "$RUNNER_TEMP/ssl-diag.txt"
+
+      # The runtime reads OPENSSL_ANDROID_DIR from the environment (see
+      # runtime/CMakeLists.txt) and links libssl/libcrypto when it finds them.
+      - name: Configure
+        id: configure
+        env:
+          # Only hand the runtime the libraries if they were really built:
+          # runtime/CMakeLists.txt links them whenever the directory exists.
+          OPENSSL_ANDROID_DIR: ${{ steps.openssl.outcome == 'success' && format('{0}/openssl-android-install', runner.temp) || '' }}
+        run: |
+          cmake -S runtime -B build-android -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-29 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMH3_AURORA_ROOT="${GITHUB_WORKSPACE}/aurora-main" \
+            -DAURORA_SDL3_PROVIDER=vendor \
+            -DAURORA_SDL3_LINKAGE=shared > "$RUNNER_TEMP/configure.log" 2>&1 \
+          || { tail -40 "$RUNNER_TEMP/configure.log"; exit 1; }
+
+      - name: Diagnose configure
+        if: failure() && steps.configure.outcome == 'failure'
+        run: |
+          log="$RUNNER_TEMP/configure.log"
+          echo "--- log is $(wc -l < "$log") lines"
+
+          # Everything from the first "CMake Error" to the end: the reason and
+          # the call stack around it. Grepping for keywords instead pulled in
+          # hundreds of "Looking for X - not found" feature probes.
+          line=$(grep -n -m1 -E '^CMake Error' "$log" | cut -d: -f1)
+          if [ -n "$line" ]; then
+            start=$((line > 3 ? line - 3 : 1))
+            sed -n "${start},\$p" "$log" | head -45 > "$RUNNER_TEMP/why.txt"
+          else
+            # No "CMake Error": a plain failure, so the end of the log is the
+            # only place the reason can be.
+            tail -40 "$log" > "$RUNNER_TEMP/why.txt"
+          fi
+
+          while IFS= read -r line; do
+            [ -n "$line" ] && echo "::error title=cmake configure::$line"
+          done < "$RUNNER_TEMP/why.txt"
+
+      - name: Report TLS
+        run: |
+          if [ -n "${OPENSSL_ANDROID_DIR:-}" ]; then
+            echo "TLS: linked (OpenSSL ${OPENSSL_VERSION})"
+          else
+            echo "::warning title=No TLS::OpenSSL for arm64 was not built, so this APK's online play has no TLS"
+          fi
+
+      - name: Build
+        run: |
+          cmake --build build-android --target libmain.so --parallel "$(nproc)"
+          # Did the engine really pick the libraries up?
+          if [ -n "${OPENSSL_ANDROID_DIR:-}" ] && \
+             ! grep -q 'MH3_HAS_OPENSSL' build-android/CMakeFiles/MH3.dir/flags.make 2>/dev/null; then
+            echo "::warning title=TLS not linked::OPENSSL_ANDROID_DIR was set but the engine did not define MH3_HAS_OPENSSL"
+          fi
+
+      - name: Package and sign
+        run: bash packaging/android/build_apk.sh
+
+      - name: Check the APK
+        run: |
+          apk="release/${APK_NAME}"
+          test -f "$apk"
+          unzip -l "$apk" > "$RUNNER_TEMP/apk.txt"
+          for lib in libmain.so libSDL3.so; do
+            grep -q "lib/arm64-v8a/$lib" "$RUNNER_TEMP/apk.txt"
+          done
+          grep -q 'classes.dex' "$RUNNER_TEMP/apk.txt"
+          # The translated code is compiled in, not shipped as data.
+          ! grep -q 'generated/' "$RUNNER_TEMP/apk.txt"
+          "${ANDROID_SDK_ROOT}/build-tools/${BUILD_TOOLS_VERSION}/apksigner" \
+            verify --print-certs "$apk"
+
+      - name: Publish the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: OceanTriRecomp-Android-v1.6-arm64
+          path: release/OceanTriRecomp-Android-v1.6-arm64.apk
+          if-no-files-found: error
+
+      # A tag is a release, so the APK goes on it rather than only into an
+      # artifact that expires.
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${GITHUB_REF_NAME}" "release/${APK_NAME}" --clobber
