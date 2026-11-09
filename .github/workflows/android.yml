@@ -181,10 +181,21 @@ jobs:
             --libdir=lib
 
           make -j"$(nproc)" build_libs
-          make install_dev   # libraries and headers, not the openssl binary
+
+          # Copy the libraries and headers here rather than through OpenSSL's
+          # install targets: with no-shared, install_dev's install_runtime_libs
+          # only copies INSTALL_SHLIBS, which is empty - the step reported
+          # success and installed nothing, leaving $prefix/lib missing.
+          mkdir -p "$prefix/lib" "$prefix/include/openssl"
+          cp -f libssl.a libcrypto.a "$prefix/lib/"
+          cp -f include/openssl/*.h "$prefix/include/openssl/"
+          cp -f include/openssl/configuration.h include/openssl/opensslconf.h \
+            "$prefix/include/openssl/" 2>/dev/null || true
+
           test -f "$prefix/lib/libssl.a"
           test -f "$prefix/lib/libcrypto.a"
           test -f "$prefix/include/openssl/ssl.h"
+          ls -l "$prefix/lib" "$prefix/include/openssl" | head -20
 
       - name: Diagnose OpenSSL
         if: steps.openssl.outcome == 'failure'
@@ -224,11 +235,14 @@ jobs:
       - name: Diagnose configure
         if: failure() && steps.configure.outcome == 'failure'
         run: |
-          echo "--- the tail of CMake's output, as annotations"
-          tail -40 "$RUNNER_TEMP/configure.log" > "$RUNNER_TEMP/tail.txt" 2>&1 || true
+          echo "--- CMake's own error lines, as annotations"
+          # NOT the tail: a configure failure is usually preceded by dozens of
+          # successful flag probes, which would bury the reason.
+          grep -nE '^CMake (Error|Warning)|error:|FATAL|Could not|No such file|not found' \
+            "$RUNNER_TEMP/configure.log" | head -25 > "$RUNNER_TEMP/why.txt" 2>&1 || true
           while IFS= read -r line; do
             [ -n "$line" ] && echo "::error title=cmake configure::$line"
-          done < "$RUNNER_TEMP/tail.txt"
+          done < "$RUNNER_TEMP/why.txt"
           echo "--- what CMake was given"
           echo "::error title=cmake configure::NDK=${ANDROID_NDK_HOME} SDK=${ANDROID_SDK_ROOT} cmake=$(command -v cmake)"
           cmake --version | head -1 || true
