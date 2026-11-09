@@ -19,6 +19,11 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      runner:
+        description: 'Runner label. "ubuntu-24.04" is GitHub-hosted and cannot see the disc.'
+        required: false
+        default: 'ubuntu-24.04'
 
 concurrency:
   group: android-${{ github.ref }}
@@ -79,7 +84,7 @@ jobs:
 
   apk:
     name: Release APK (arm64)
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.event.inputs.runner || 'ubuntu-24.04' }}
     needs: tests
     steps:
       # The translated code is ~630 MB on disk, so a shallow checkout saves a lot
@@ -88,6 +93,22 @@ jobs:
         with:
           fetch-depth: 1
           lfs: true
+
+      # recomp.yml pins the disc's main.dol by SHA-256 and names the function map
+      # next to it; both are gitignored, because they are the user's own ripped
+      # disc. A hosted runner has neither, and without them the translator
+      # refuses to configure - so say so here, by name, instead of twenty
+      # minutes later inside CMake.
+      - name: Check the disc inputs
+        run: |
+          missing=""
+          [ -f "Assets/DATA/sys/main.dol" ] || missing="$missing Assets/DATA/sys/main.dol"
+          [ -f "build/MAP.txt" ] || missing="$missing build/MAP.txt"
+          if [ -n "$missing" ]; then
+            echo "::error title=Build inputs missing::recomp.yml needs:$missing - both are gitignored and come from the user's own disc. Run this workflow on a self-hosted runner that has them (workflow_dispatch with runner=<your label>), or provide them at those paths."
+            exit 1
+          fi
+          echo "disc inputs present: $(ls -l Assets/DATA/sys/main.dol | awk '{print $5}') bytes of DOL"
 
       - uses: actions/setup-java@v5
         with:
