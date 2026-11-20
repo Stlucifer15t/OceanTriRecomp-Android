@@ -50,7 +50,14 @@ def validate(output, native, resolved_profile=None):
     manifest = output / 'shards.cmake'
     if not manifest.is_file():
         raise ValueError('missing generated shards.cmake')
-    selected = {Path(p) for p in re.findall(r'"([^"\n]+\.(?:cpp|h|inc))"', manifest.read_text())}
+
+    def resolve_shard(text):
+        # The shard graph is included from runtime/CMakeLists.txt, so its
+        # relative paths are relative to runtime/.
+        path = Path(text)
+        return path if path.is_absolute() else (ROOT / 'runtime') / path
+
+    selected = {resolve_shard(p) for p in re.findall(r'"([^"\n]+\.(?:cpp|h|inc))"', manifest.read_text())}
     checked = {}
     higher_priority_mods = set()
     if resolved_profile:
@@ -86,11 +93,30 @@ def output_digests(directory):
             if p.is_file() and (p.suffix in ('.cpp', '.h', '.inc', '.cmake') or p.name == 'base_common_shard_map.json')}
 
 
+def portable_key(path):
+    # The freshness stamp must be portable between machines: the same source
+    # tree has to compare equal regardless of the checkout path.
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(ROOT))
+    except ValueError:
+        return str(resolved)
+
+
+def translator_inputs():
+    # Track the translator sources, not the build-output DLLs, so the stamp
+    # does not depend on a build directory or the host that produced it.
+    root = ROOT / 'toolchain' / 'translator' / 'src'
+    paths = []
+    for pattern in ('*.cs', '*.csproj', '*.props', '*.targets', '*.sln'):
+        paths += sorted(root.rglob(pattern))
+    return paths
+
+
 def input_digests(args):
     paths = [args.native_index] if args.native_index.is_file() else source_files(args.native_dir)
-    paths += [args.base_metadata, args.translator, Path(__file__).resolve()]
-    # Core dependencies matter even when the CLI wrapper itself is unchanged.
-    paths += sorted(args.translator.parent.glob('Translator*.dll'))
+    paths += [args.base_metadata] + translator_inputs()
+    paths.append(Path(__file__).resolve())
     metadata = json.loads(args.base_metadata.read_text())
     bundle = metadata.get('sourceBundlePath')
     if bundle:
@@ -105,7 +131,7 @@ def input_digests(args):
         bundle = args.retro_cpp_dir.parent / 'translated_sources.bin'
         if bundle.is_file():
             paths.append(bundle)
-    return {str(p.resolve()): digest(p) for p in sorted(set(paths))}
+    return {portable_key(p): digest(p) for p in sorted(set(paths))}
 
 
 def prepare(args):
@@ -114,12 +140,22 @@ def prepare(args):
         fcntl.flock(lock, fcntl.LOCK_EX)
         stamp = args.out / 'native_dispatch_freshness.json'
         inputs = input_digests(args)
-        recipe = [str(args.base_metadata), str(args.functions), str(args.native_dir),
-                  str(args.resolved_profile or ''), str(args.retro_cpp_dir or '')]
+        recipe = [portable_key(args.base_metadata), portable_key(args.functions), portable_key(args.native_dir),
+                  portable_key(args.resolved_profile) if args.resolved_profile else '',
+                  portable_key(args.retro_cpp_dir) if args.retro_cpp_dir else '']
         previous = json.loads(stamp.read_text()) if stamp.is_file() else {}
         fresh = (previous.get('format') == 2 and previous.get('inputs') == inputs and
                  previous.get('recipe') == recipe and previous.get('outputs') == output_digests(args.out))
         native = native_addresses(args.native_dir)
+        if args.stamp_only:
+            tables = validate(args.out, native, args.resolved_profile)
+            temporary = stamp.with_suffix('.tmp')
+            temporary.write_text(json.dumps(dict(format=2, inputs=inputs, recipe=recipe,
+                                                 outputs=output_digests(args.out), native_addresses=sorted(native),
+                                                 tables=tables), indent=2) + '\n')
+            temporary.replace(stamp)
+            print(f'Native dispatch stamp refreshed without the translator: {len(native)} native addresses')
+            return tables
         if fresh and not args.force:
             tables = validate(args.out, native, args.resolved_profile)
             print(f'Native dispatch fresh: {len(native)} literal native addresses; base + retro_rewind')
@@ -171,6 +207,8 @@ def main():
     parser.add_argument('--retro-cpp-dir', type=Path)
     parser.add_argument('--check', action='store_true')
     parser.add_argument('--force', action='store_true')
+    parser.add_argument('--stamp-only', action='store_true',
+                        help='write the freshness stamp from the existing inputs/outputs without running the translator')
     args = parser.parse_args()
     for key, value in vars(args).items():
         if isinstance(value, Path):
