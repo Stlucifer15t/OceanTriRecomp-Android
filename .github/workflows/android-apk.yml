@@ -65,7 +65,6 @@ jobs:
       - name: Build native dispatch translator
         run: |
           dotnet build toolchain/translator/src/Translator.Cli/Translator.Cli.csproj -c Release --nologo
-          ls -la toolchain/translator/src/Translator.Cli/bin/Release/net8.0/
 
       - name: Build native runtime
         run: |
