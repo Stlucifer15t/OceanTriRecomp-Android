@@ -76,9 +76,10 @@ jobs:
       - name: Build APK
         run: |
           export ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/28.2.13676358"
-          export MH3_MAIN_LIB="$(find build-android -name 'libmain.so' | head -n 1)"
-          export MH3_SDL3_LIB="$(find build-android -name 'libSDL3.so' | head -n 1)"
-          export MH3_PNG_LIB="$(find build-android -name 'libpng16.so' | head -n 1)"
+          export MH3_MAIN_LIB="$(find "$(pwd)/build-android" -name 'libmain.so' -print -quit)"
+          export MH3_SDL3_LIB="$(find "$(pwd)/build-android" -name 'libSDL3.so' -print -quit)"
+          export MH3_PNG_LIB="$(find "$(pwd)/build-android" -name 'libpng16.so' -print -quit)"
+          printf 'main=%s\nsdl3=%s\npng=%s\n' "$MH3_MAIN_LIB" "$MH3_SDL3_LIB" "$MH3_PNG_LIB"
           bash packaging/android/build_apk.sh
 
       - name: Upload APK
