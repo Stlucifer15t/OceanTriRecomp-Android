@@ -71,7 +71,7 @@ jobs:
             -DANDROID=ON \
             -DAURORA_SDL3_PROVIDER=vendor \
             -DAURORA_SDL3_LINKAGE=shared
-          cmake --build build-android --target MH3 --parallel
+          cmake --build build-android --target MH3 --parallel 2
 
       - name: Build APK
         run: |
