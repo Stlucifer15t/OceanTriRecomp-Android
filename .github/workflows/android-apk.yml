@@ -57,9 +57,18 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
             "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;28.2.13676358"
 
+      - name: Install .NET SDK
+        run: |
+          wget https://dot.net/v1/dotnet-install.sh -O /tmp/dotnet-install.sh
+          chmod +x /tmp/dotnet-install.sh
+          /tmp/dotnet-install.sh --channel 8.0 --install-dir /usr/local/share/dotnet
+          echo "DOTNET_ROOT=/usr/local/share/dotnet" >> $GITHUB_ENV
+          echo "/usr/local/share/dotnet" >> $GITHUB_PATH
+
       - name: Build native runtime
         run: |
           export ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/28.2.13676358"
+          export PATH="/usr/local/share/dotnet:$PATH"
           cmake -S runtime -B build-android \
             -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=arm64-v8a \
