@@ -1472,11 +1472,11 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
         if (SDLControllerManager.isDeviceSDLJoystick(deviceId)) {
             // Note that we process events with specific key codes here
             if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                if (SDLControllerManager.onNativePadDown(deviceId, keyCode, event.getScanCode())) {
+                if (SDLControllerManager.onNativePadDown(deviceId, keyCode)) {
                     return true;
                 }
             } else if (event.getAction() == KeyEvent.ACTION_UP) {
-                if (SDLControllerManager.onNativePadUp(deviceId, keyCode, event.getScanCode())) {
+                if (SDLControllerManager.onNativePadUp(deviceId, keyCode)) {
                     return true;
                 }
             }
