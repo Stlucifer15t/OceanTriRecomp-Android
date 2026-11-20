@@ -57,13 +57,10 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
             "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;28.2.13676358"
 
-      - name: Install .NET SDK
-        run: |
-          wget https://dot.net/v1/dotnet-install.sh -O /tmp/dotnet-install.sh
-          chmod +x /tmp/dotnet-install.sh
-          /tmp/dotnet-install.sh --channel 8.0 --install-dir /usr/local/share/dotnet
-          echo "DOTNET_ROOT=/usr/local/share/dotnet" >> $GITHUB_ENV
-          echo "/usr/local/share/dotnet" >> $GITHUB_PATH
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
 
       - name: Build native runtime
         run: |
