@@ -2658,7 +2658,7 @@ private:
 public:
     void SetPendingGeckoImport(std::string name, std::string text) {
         std::lock_guard lock(m_importMutex);
-        m_importName = std::move(name);
+        m_importDisplayName = std::move(name);
         m_importText = std::move(text);
         m_importPending = true;
     }
@@ -2745,7 +2745,7 @@ private:
                 hasPending = m_importPending;
 
                 if (hasPending) {
-                    pendingName = m_importName;
+                    pendingName = m_importDisplayName;
                     pendingText = m_importText;
                     m_importPending = false;
                 }
