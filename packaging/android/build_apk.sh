@@ -19,6 +19,10 @@ if [ ! -f "${KEYSTORE}" ] && [ -f "${BUILD_DIR}/oceantri.keystore" ]; then
     KEYSTORE="${BUILD_DIR}/oceantri.keystore"
 fi
 
+MAIN_LIB="${MH3_MAIN_LIB:-${PROJECT_ROOT}/build-android/libmain.so}"
+PNG_LIB="${MH3_PNG_LIB:-${PROJECT_ROOT}/build-android/_deps/png-build/libpng16.so}"
+SDL3_LIB="${MH3_SDL3_LIB:-/var/mnt/juegos_sdb2/MHFU/out/release-android-mhfu/deps/sdl3-install/lib/libSDL3.so}"
+
 mkdir -p "${BUILD_DIR}"
 mkdir -p "${OBJ_DIR}"
 
@@ -52,9 +56,9 @@ jar -uf "base.apk" classes.dex
 
 echo "=== 6. Preparing and Stripping Native Libraries ==="
 mkdir -p "${BUILD_DIR}/apk_root/lib/arm64-v8a"
-cp "${PROJECT_ROOT}/build-android/libmain.so" "${BUILD_DIR}/apk_root/lib/arm64-v8a/libmain.so"
-cp "${PROJECT_ROOT}/build-android/_deps/png-build/libpng16.so" "${BUILD_DIR}/apk_root/lib/arm64-v8a/libpng16.so"
-cp "/var/mnt/juegos_sdb2/MHFU/out/release-android-mhfu/deps/sdl3-install/lib/libSDL3.so" "${BUILD_DIR}/apk_root/lib/arm64-v8a/libSDL3.so"
+cp "${MAIN_LIB}" "${BUILD_DIR}/apk_root/lib/arm64-v8a/libmain.so"
+cp "${PNG_LIB}" "${BUILD_DIR}/apk_root/lib/arm64-v8a/libpng16.so"
+cp "${SDL3_LIB}" "${BUILD_DIR}/apk_root/lib/arm64-v8a/libSDL3.so"
 
 "${NDK_STRIP}" --strip-all "${BUILD_DIR}/apk_root/lib/arm64-v8a/libmain.so"
 "${NDK_STRIP}" --strip-all "${BUILD_DIR}/apk_root/lib/arm64-v8a/libpng16.so"

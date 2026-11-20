@@ -12,6 +12,8 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <mutex>
 #include <cctype>
 #include <charconv>
 #include <climits>
@@ -560,12 +562,19 @@ void ConsumePresses() {
 }
 
 void Step(CpuContext*) {
-    static const bool any = [] {
-        for (size_t i = 0; i < size_t(Id::Count); ++i)
-            if (g_on[i] && Id(i) != Id::NoDamage && Id(i) != Id::NoStaminaDrain && Id(i) != Id::AllItems && Id(i) != Id::AllEquipment)
-                return true;
-        return false;
-    }();
+    LauncherCheats::ApplyPending();
+
+    // NoDamage/NoStaminaDrain are applied when enabled, so they do not need
+    // the per-step pass. AllItems/AllEquipment do run in StepItems and must
+    // be reachable here.
+    bool any = false;
+
+    for (size_t i = 0; i < size_t(Id::Count); ++i) {
+        if (g_on[i] && Id(i) != Id::NoDamage && Id(i) != Id::NoStaminaDrain) {
+            any = true;
+            break;
+        }
+    }
 
     if (!any)
         return;
@@ -762,6 +771,88 @@ bool EnableByName(std::string_view name, std::string_view value) {
     }
 
     return false;
+}
+
+namespace {
+enum class UiCommandKind { Enable, Select, Text };
+
+struct UiCommand {
+    UiCommandKind kind = UiCommandKind::Enable;
+    size_t cheat = 0;
+    bool enabled = false;
+    size_t choice = 0;
+    std::string text;
+};
+
+std::mutex g_uiMutex;
+std::vector<UiCommand> g_uiCommands;
+std::atomic<bool> g_uiPending{false};
+} // namespace
+
+void PostEnable(size_t cheat, bool enabled) {
+    if (cheat >= kList.size())
+        return;
+
+    std::lock_guard lock(g_uiMutex);
+    g_uiCommands.push_back({UiCommandKind::Enable, cheat, enabled, 0, {}});
+    g_uiPending.store(true, std::memory_order_relaxed);
+}
+
+void PostSelect(size_t cheat, size_t choice) {
+    if (cheat >= kList.size() || choice >= Choices(cheat))
+        return;
+
+    std::lock_guard lock(g_uiMutex);
+    g_uiCommands.push_back({UiCommandKind::Select, cheat, false, choice, {}});
+    g_uiPending.store(true, std::memory_order_relaxed);
+}
+
+void PostText(size_t cheat, std::string_view text) {
+    if (cheat >= kList.size() || text.size() > TextLength(cheat))
+        return;
+
+    std::lock_guard lock(g_uiMutex);
+    g_uiCommands.push_back({UiCommandKind::Text, cheat, false, 0, std::string(text)});
+    g_uiPending.store(true, std::memory_order_relaxed);
+}
+
+State Snapshot(size_t cheat) {
+    State state;
+
+    std::lock_guard lock(g_uiMutex);
+
+    if (cheat >= kList.size())
+        return state;
+
+    state.enabled = g_on[cheat];
+    state.selected = g_selected[cheat];
+    state.value = ValueLabel(cheat);
+    state.text = g_text[cheat];
+    return state;
+}
+
+void ApplyPending() {
+    if (!g_uiPending.load(std::memory_order_relaxed))
+        return;
+
+    std::lock_guard lock(g_uiMutex);
+
+    for (const UiCommand& command : g_uiCommands) {
+        switch (command.kind) {
+        case UiCommandKind::Enable:
+            Enable(command.cheat, command.enabled);
+            break;
+        case UiCommandKind::Select:
+            Select(command.cheat, command.choice);
+            break;
+        case UiCommandKind::Text:
+            SetText(command.cheat, command.text);
+            break;
+        }
+    }
+
+    g_uiCommands.clear();
+    g_uiPending.store(false, std::memory_order_relaxed);
 }
 
 } // namespace LauncherCheats

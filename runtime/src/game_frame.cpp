@@ -26,6 +26,7 @@
 #include "native_owner.h"
 #include "port_check.h"
 #include "village_boot.h"
+#include "gecko/gecko_manager.h"
 #include <initializer_list>
 #include <stdexcept>
 #include <utility>
@@ -681,6 +682,7 @@ extern "C" void MH3_GameFrame(CpuContext* ctx) {
         GameTasks::SkipStrapScreen();
         StepVillageBoot(ctx);
         Cheats::Step(ctx);
+        Gecko::Runtime().Step();
         MonsterControl::Step(ctx);
 #if defined(MH3_DEVELOPMENT) && !defined(__vita__)
         DebugPort::Step(ctx);

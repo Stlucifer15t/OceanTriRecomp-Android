@@ -22,6 +22,7 @@ import android.view.WindowManager;
 
 import org.libsdl.app.SDLActivity;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -29,6 +30,7 @@ import java.io.FileWriter;
 import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -41,6 +43,7 @@ public class OceanTriActivity extends SDLActivity {
     private static final int REQUEST_STORAGE_PERMS = 1001;
     private static final int REQUEST_PICK_ROM_COPY = 1002;
     private static final int REQUEST_PICK_ROM_SELECT = 1003;
+    private static final int REQUEST_PICK_GECKO = 1004;
 
     private static final LinkedList<String> sLogBuffer = new LinkedList<>();
     private static String sRomPath = null;
@@ -102,12 +105,22 @@ public class OceanTriActivity extends SDLActivity {
     }
 
     public static final int COMMAND_RESTART = 0x8001;
+    public static final int COMMAND_GECKO_IMPORT = 0x8002;
 
     @Override
     protected boolean onUnhandledMessage(int command, Object param) {
         if (command == COMMAND_RESTART) {
             log("Received COMMAND_RESTART from native code. Triggering rebirth via ProcessPhoenix...");
             ProcessPhoenix.triggerRebirth(this);
+            return true;
+        }
+        if (command == COMMAND_GECKO_IMPORT) {
+            log("Received COMMAND_GECKO_IMPORT from native code. Launching document picker...");
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    launchGeckoPicker();
+                }
+            });
             return true;
         }
         return super.onUnhandledMessage(command, param);
@@ -343,8 +356,78 @@ public class OceanTriActivity extends SDLActivity {
             } else {
                 showRomSelectPrompt();
             }
+        } else if (requestCode == REQUEST_PICK_GECKO) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                handleGeckoImport(data.getData());
+            } else {
+                log("Gecko import canceled");
+            }
         }
     }
+
+    private void launchGeckoPicker() {
+        try {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("text/plain");
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{ "text/plain", "text/*", "application/octet-stream", "*/*" });
+            startActivityForResult(intent, REQUEST_PICK_GECKO);
+        } catch (Exception e) {
+            log("Error launching Gecko import picker: " + e.getMessage());
+        }
+    }
+
+    private void handleGeckoImport(Uri uri) {
+        String displayName = "gecko_codes.txt";
+        try (Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (nameIdx >= 0 && cursor.getString(nameIdx) != null && !cursor.getString(nameIdx).isEmpty())
+                    displayName = cursor.getString(nameIdx);
+            }
+        } catch (Exception ignored) {
+        }
+
+        final String finalName = displayName;
+        final Uri finalUri = uri;
+
+        new Thread(new Runnable() {
+            @Override public void run() {
+                ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+                byte[] chunk = new byte[8192];
+                int total = 0;
+                int n;
+                try (InputStream in = getContentResolver().openInputStream(finalUri)) {
+                    if (in == null) {
+                        log("Could not open selected Gecko file");
+                        return;
+                    }
+                    while ((n = in.read(chunk)) != -1) {
+                        total += n;
+                        if (total > 1024 * 1024) {
+                            log("Gecko import file is too large");
+                            return;
+                        }
+                        buffer.write(chunk, 0, n);
+                    }
+                } catch (Exception e) {
+                    log("Failed to read Gecko import file: " + e.getMessage());
+                    return;
+                }
+
+                final String text = new String(buffer.toByteArray(), StandardCharsets.UTF_8);
+
+                try {
+                    nativeGeckoImport(finalName, text);
+                    log("Gecko import ready: " + finalName + " (" + text.length() + " chars)");
+                } catch (UnsatisfiedLinkError e) {
+                    log("Gecko import native bridge not available: " + e.getMessage());
+                }
+            }
+        }, "GeckoImportThread").start();
+    }
+
+    private static native void nativeGeckoImport(String name, String text);
 
     private void showInvalidRomDialog(String displayName) {
         AlertDialog.Builder b = new AlertDialog.Builder(this);

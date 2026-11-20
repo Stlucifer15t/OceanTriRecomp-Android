@@ -33,6 +33,8 @@
 #include "quest_placement.h"
 #include "quest_catalog.h"
 #include "launcher_cheats.h"
+#include "gecko/gecko_manager.h"
+#include "gecko/gecko_storage.h"
 #include "guest_worker.h"
 #include "net/online.h"
 #include "net/local_server.h"
@@ -1071,7 +1073,10 @@ int main(int argc, char** argv) {
         std::filesystem::create_directories(std::string(userDir) + "/nand", uec);
         std::filesystem::create_directories(std::string(userDir) + "/graphics", uec);
         std::filesystem::create_directories(std::string(userDir) + "/logs", uec);
+        std::filesystem::create_directories(std::string(userDir) + "/gecko", uec);
+        std::filesystem::create_directories(std::string(userDir) + "/gecko/imports", uec);
         setenv("MH3_USER_DIR", userDir, 1);
+        Gecko::Runtime().LoadInitialCodes();
 #if defined(ANDROID) || defined(__ANDROID__)
         __android_log_print(ANDROID_LOG_INFO, "MH3", "MH3_USER_DIR set to: %s", userDir);
 #else

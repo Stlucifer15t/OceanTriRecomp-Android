@@ -11,6 +11,10 @@
 #include "recomp_mod_loader.h"
 #include "efb_host.h"
 #include "disc_image.h"
+#include "gecko/gecko_manager.h"
+#include "gecko/gecko_parser.h"
+#include "gecko/gecko_storage.h"
+#include "launcher_cheats.h"
 
 #include <SDL3/SDL.h>
 #include <GLES3/gl3.h>
@@ -226,6 +230,7 @@ public:
         m_menuOpen = open;
         if (!open) {
             m_langSubmenuOpen = false;
+            CloseCheatModals();
         }
         NoteTouchActivity();
 #if !defined(__ANDROID__)
@@ -1178,6 +1183,15 @@ public:
             if (m_ipEditModalOpen) {
                 RenderIpEditModal();
             }
+            if (m_geckoAddOpen) {
+                RenderGeckoAddModal();
+            } else if (m_importOpen) {
+                RenderGeckoImportModal();
+            } else if (m_geckoDetail >= 0) {
+                RenderGeckoDetailModal();
+            } else if (m_builtinTextOpen) {
+                RenderBuiltinTextModal();
+            }
         } else if (AndroidKeyboard_IsImeShowing()) {
             RenderFpsHud();
         } else {
@@ -1905,8 +1919,8 @@ private:
         DrawRoundedRect(padX, padY, panW, panH, 18.0f * S, COL_BG_DARK, COL_PANEL_BORDER);
 
         // Header Title & Subtitle
-        const char* titles_es[] = { "Gráficos", "Sistema", "Guardados", "Controles", "Online" };
-        const char* titles_en[] = { "Graphics", "System", "Saves", "Controls", "Online" };
+        const char* titles_es[] = { "Gráficos", "Sistema", "Guardados", "Controles", "Online", "Trucos" };
+        const char* titles_en[] = { "Graphics", "System", "Saves", "Controls", "Online", "Cheats" };
         const char* const* titles = (m_menuLang == 1) ? titles_en : titles_es;
 
         const char* subtitles_es[] = {
@@ -1914,14 +1928,16 @@ private:
             "Idioma del menú, idioma del juego y reinicio rápido",
             "Gestor de partidas guardadas (Dolphin / Wii NAND)",
             "Controles táctiles, diseño de botones (.PNG), mando y macros",
-            "Multijugador online en servidores comunitarios MH3SP"
+            "Multijugador online en servidores comunitarios MH3SP",
+            "Trucos integrados y códigos Gecko personalizados"
         };
         const char* subtitles_en[] = {
             "Display, resolution, framerate and lighting",
             "Menu language, game language and quick restart",
             "Save file manager (Dolphin / Wii NAND)",
             "Touch controls, custom button skins (.PNG), gamepad and macros",
-            "Online multiplayer on MH3SP community servers"
+            "Online multiplayer on MH3SP community servers",
+            "Built-in cheats and custom Gecko codes"
         };
         const char* const* subtitles = (m_menuLang == 1) ? subtitles_en : subtitles_es;
 
@@ -1953,9 +1969,9 @@ private:
         // Tab Navigation Bar
         float tabY = divY + 10.0f * S;
         float tabGap = 10.0f * S;
-        float tabW = (panW - 44.0f * S - tabGap * 4.0f) / 5.0f;
+        float tabW = (panW - 44.0f * S - tabGap * 5.0f) / 6.0f;
         float tabH = 50.0f * S;
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < 6; ++i) {
             float tx = padX + 22.0f * S + float(i) * (tabW + tabGap);
             bool active = (m_menuTab == i);
             DrawInteractiveButton(tx, tabY, tabW, tabH, S, titles[i], active, [this, i]() {
@@ -1993,6 +2009,7 @@ private:
         else if (m_menuTab == 2) totalContentH = RenderTabSaves(contentX, startY, contentW, S);
         else if (m_menuTab == 3) totalContentH = RenderTabControls(contentX, startY, contentW, S);
         else if (m_menuTab == 4) totalContentH = RenderTabOnline(contentX, startY, contentW, S);
+        else if (m_menuTab == 5) totalContentH = RenderTabCheats(contentX, startY, contentW, S);
 
         ClearScissorClip();
 
@@ -2569,6 +2586,673 @@ private:
 
     void RenderIpEditModal() {
         m_ipEditModalOpen = false;
+    }
+
+    void RefreshCheatCatalog() {
+        if (m_cheatCatalog.empty()) {
+            const auto list = LauncherCheats::List();
+            m_cheatCatalog.assign(list.begin(), list.end());
+
+            const auto groups = LauncherCheats::Groups();
+            for (const char* group : groups)
+                m_cheatGroups.emplace_back(group);
+
+            if (m_cheatGroups.empty())
+                m_cheatGroups.push_back("");
+
+            m_cheatGroup = 0;
+        }
+
+        // The Cheats tab is only rendered while it is open; refreshing the
+        // snapshot here is one locked copy per frame, not a background poll.
+        m_geckoSnapshot = Gecko::Runtime().GetSnapshot();
+        m_geckoSnapshotDirty = false;
+    }
+
+    void OpenGeckoAddModal() {
+        m_geckoAddOpen = true;
+        m_geckoField = 0;
+        m_geckoName.clear();
+        m_geckoText.clear();
+        m_geckoPreviewValid = false;
+        m_geckoPreview = Gecko::ParseResult{};
+        m_geckoStatus.clear();
+
+        if (SDL_Window* win = aurora_get_window())
+            SDL_StartTextInput(win);
+    }
+
+    void OpenGeckoImportPreview(const std::string& name, const std::string& text) {
+        m_geckoAddOpen = false;
+        m_geckoDetail = -1;
+        m_builtinTextOpen = false;
+        m_importDisplayName = name;
+        m_importSourceText = text;
+        m_importPreview = Gecko::Parse(text);
+        m_importStatus.clear();
+        m_importOpen = true;
+    }
+
+    void OpenBuiltinTextModal(size_t cheat) {
+        if (LauncherCheats::TextLength(cheat) == 0)
+            return;
+
+        m_builtinTextOpen = true;
+        m_builtinTextCheat = cheat;
+        m_builtinTextBuffer = LauncherCheats::Snapshot(cheat).text;
+
+        if (SDL_Window* win = aurora_get_window())
+            SDL_StartTextInput(win);
+    }
+
+    void CloseCheatModals() {
+        m_geckoAddOpen = false;
+        m_geckoDetail = -1;
+        m_builtinTextOpen = false;
+        m_importOpen = false;
+
+        if (SDL_Window* win = aurora_get_window())
+            SDL_StopTextInput(win);
+    }
+
+public:
+    void SetPendingGeckoImport(std::string name, std::string text) {
+        std::lock_guard lock(m_importMutex);
+        m_importName = std::move(name);
+        m_importText = std::move(text);
+        m_importPending = true;
+    }
+
+    bool HandleCheatTextEvent(const SDL_Event* event) {
+        if (!event || (!m_geckoAddOpen && !m_builtinTextOpen))
+            return false;
+
+        if (event->type == SDL_EVENT_TEXT_INPUT) {
+            if (!event->text.text || event->text.text[0] == '\0')
+                return false;
+
+            const std::string text = event->text.text;
+
+            if (m_geckoAddOpen) {
+                if (m_geckoField == 0) {
+                    for (char c : text)
+                        if (c != '\n' && c != '\r')
+                            m_geckoName += c;
+                } else {
+                    m_geckoText += text;
+                }
+                m_geckoPreviewValid = false;
+            } else if (m_builtinTextOpen && m_builtinTextBuffer.size() < LauncherCheats::TextLength(m_builtinTextCheat)) {
+                m_builtinTextBuffer += text;
+            }
+
+            return true;
+        }
+
+        if (event->type != SDL_EVENT_KEY_DOWN)
+            return false;
+
+        if (event->key.key == SDLK_BACKSPACE || event->key.key == SDLK_DELETE) {
+            if (m_geckoAddOpen) {
+                if (m_geckoField == 0) {
+                    if (!m_geckoName.empty())
+                        m_geckoName.pop_back();
+                } else if (!m_geckoText.empty()) {
+                    m_geckoText.pop_back();
+                }
+                m_geckoPreviewValid = false;
+            } else if (!m_builtinTextBuffer.empty()) {
+                m_builtinTextBuffer.pop_back();
+            }
+            return true;
+        }
+
+        if (m_geckoAddOpen && event->key.key == SDLK_TAB) {
+            m_geckoField = 1 - m_geckoField;
+            return true;
+        }
+
+        if (m_geckoAddOpen && event->key.key == SDLK_RETURN) {
+            if (m_geckoField == 0)
+                m_geckoField = 1;
+            else
+                m_geckoText += "\n";
+            return true;
+        }
+
+        if (event->key.key == SDLK_ESCAPE) {
+            CloseCheatModals();
+            return true;
+        }
+
+        return false;
+    }
+
+private:
+    float RenderTabCheats(float x, float y, float w, float S) {
+        float curY = y;
+        const float gap = 12.0f * S;
+
+        RefreshCheatCatalog();
+
+        {
+            std::string pendingName;
+            std::string pendingText;
+            bool hasPending = false;
+
+            {
+                std::lock_guard lock(m_importMutex);
+                hasPending = m_importPending;
+
+                if (hasPending) {
+                    pendingName = m_importName;
+                    pendingText = m_importText;
+                    m_importPending = false;
+                }
+            }
+
+            if (hasPending)
+                OpenGeckoImportPreview(pendingName, pendingText);
+        }
+
+        DrawText(x + 10.0f * S, curY, Tr("TRUCOS INTEGRADOS", "BUILT-IN CHEATS"), 17.0f * S, COL_CYAN);
+        curY += 26.0f * S;
+
+        const float chipH = 38.0f * S;
+        const float chipW = (w - 20.0f * S - 10.0f * S) / 2.0f;
+
+        for (size_t i = 0; i < m_cheatGroups.size(); ++i) {
+            float cx = x + 10.0f * S + float(i % 2) * (chipW + 10.0f * S);
+            float cy = curY + float(i / 2) * (chipH + 8.0f * S);
+            DrawInteractiveButton(cx, cy, chipW, chipH, S, m_cheatGroups[i].c_str(), i == size_t(m_cheatGroup),
+                                  [this, i]() { m_cheatGroup = int(i); }, 13.0f * S);
+        }
+
+        curY += float((m_cheatGroups.size() + 1u) / 2u) * (chipH + 8.0f * S) + gap;
+
+        const std::string groupName = m_cheatGroups[std::min<size_t>(m_cheatGroup, m_cheatGroups.size() - 1)];
+
+        for (size_t i = 0; i < m_cheatCatalog.size(); ++i) {
+            if (std::string(m_cheatCatalog[i].group) != groupName)
+                continue;
+
+            const LauncherCheats::State state = LauncherCheats::Snapshot(i);
+            const float rowH = 92.0f * S;
+            DrawModernCard(x, curY, w, rowH, S, m_cheatCatalog[i].name, m_cheatCatalog[i].detail,
+                           state.enabled ? COL_CYAN : Color{ 0, 0, 0, 0 });
+
+            const float toggleW = 62.0f * S;
+            DrawInteractiveButton(x + w - toggleW - 12.0f * S, curY + 12.0f * S, toggleW, 40.0f * S, S,
+                                   state.enabled ? "ON" : "OFF", state.enabled, [this, i]() {
+                const LauncherCheats::State current = LauncherCheats::Snapshot(i);
+                LauncherCheats::PostEnable(i, !current.enabled);
+            }, 14.0f * S,
+            state.enabled ? Color{ 0.05f, 0.45f, 0.20f, 0.95f } : Color{ 0.45f, 0.12f, 0.12f, 0.95f },
+            state.enabled ? COL_CYAN : Color{ 0.9f, 0.4f, 0.4f, 1.0f });
+
+            if (LauncherCheats::Choices(i) > 0) {
+                DrawInteractiveButton(x + 12.0f * S, curY + 58.0f * S, 130.0f * S, 30.0f * S, S,
+                                       state.value.empty() ? "—" : state.value.c_str(), false, [this, i]() {
+                    const size_t choices = LauncherCheats::Choices(i);
+                    if (choices == 0)
+                        return;
+                    const LauncherCheats::State current = LauncherCheats::Snapshot(i);
+                    LauncherCheats::PostSelect(i, (current.selected + 1u) % choices);
+                }, 13.0f * S);
+            }
+
+            if (LauncherCheats::TextLength(i) > 0) {
+                DrawInteractiveButton(x + 152.0f * S, curY + 58.0f * S, 74.0f * S, 30.0f * S, S,
+                                       Tr("TEXTO", "TEXT"), false, [this, i]() { OpenBuiltinTextModal(i); }, 13.0f * S);
+            }
+
+            curY += rowH + gap;
+        }
+
+        curY += 8.0f * S;
+        DrawText(x + 10.0f * S, curY, Tr("CÓDIGOS GECKO PERSONALIZADOS", "CUSTOM GECKO CODES"), 17.0f * S, COL_CYAN);
+        curY += 24.0f * S;
+        DrawText(x + 10.0f * S, curY, Tr("Los códigos guardados se cargan desactivados.",
+                                         "Saved codes load disabled."), 11.5f * S, COL_MUTED);
+        curY += 20.0f * S;
+
+        if (!m_geckoSnapshot.storageError.empty()) {
+            DrawText(x + 10.0f * S, curY, m_geckoSnapshot.storageError.c_str(), 11.5f * S,
+                     Color{ 1.0f, 0.45f, 0.45f, 1.0f });
+            curY += 18.0f * S;
+        }
+
+        DrawInteractiveButton(x + 10.0f * S, curY, 110.0f * S, 44.0f * S, S,
+                              Tr("+ AÑADIR", "+ ADD"), false, [this]() { OpenGeckoAddModal(); }, 14.0f * S,
+                              Color{ 0.05f, 0.30f, 0.45f, 0.95f }, COL_CYAN);
+        DrawInteractiveButton(x + 130.0f * S, curY, 120.0f * S, 44.0f * S, S,
+                              Tr("IMPORTAR", "IMPORT"), false, [this]() {
+            #if defined(__ANDROID__)
+            SDL_SendAndroidMessage(0x8002, 0);
+            #else
+            m_geckoStatus = Tr("La importación requiere Android.", "Import requires Android.");
+            #endif
+        }, 14.0f * S, Color{ 0.05f, 0.20f, 0.35f, 0.95f }, COL_CYAN);
+        if (!m_geckoStatus.empty())
+            DrawText(x + 260.0f * S, curY + 14.0f * S, m_geckoStatus.c_str(), 12.5f * S, COL_MUTED);
+
+        curY += 44.0f * S + gap;
+
+        if (m_geckoSnapshot.codes.empty()) {
+            DrawText(x + 10.0f * S, curY + 8.0f * S,
+                     Tr("No hay códigos registrados en esta sesión.", "No codes registered this session."), 14.0f * S, COL_MUTED);
+            curY += 44.0f * S;
+        } else {
+            for (size_t i = 0; i < m_geckoSnapshot.codes.size(); ++i) {
+                const Gecko::CodeSnapshot& code = m_geckoSnapshot.codes[i];
+                const float rowH = 84.0f * S;
+
+                const bool unsupported = code.support == Gecko::SupportLevel::Unsupported;
+                const bool invalid = !code.valid;
+                const bool canToggle = !invalid && !unsupported;
+
+                const Color statusCol = unsupported || invalid ?
+                    Color{ 1.0f, 0.60f, 0.30f, 1.0f } :
+                    (code.enabled ? COL_CYAN : Color{ 0.0f, 0.0f, 0.0f, 0.0f });
+
+                DrawModernCard(x, curY, w, rowH, S, code.name.empty() ? "Code" : code.name.c_str(),
+                               code.description.empty() ? "" : code.description.c_str(), statusCol);
+
+                char badge[80];
+                std::snprintf(badge, sizeof(badge), "%s%s",
+                               invalid ? "INVALID" : Gecko::SupportLevelName(code.support),
+                               code.gameCompatibility == Gecko::GameCompatibility::RegionMismatch ? " · REGION" : "");
+                DrawText(x + 12.0f * S, curY + 52.0f * S, badge, 12.0f * S,
+                         unsupported || invalid ? Color{ 1.0f, 0.60f, 0.30f, 1.0f } : COL_CYAN);
+
+                if (!code.runtimeDiagnostics.empty())
+                    DrawText(x + 12.0f * S, curY + 66.0f * S,
+                            std::string(code.runtimeDiagnostics.front().message).substr(0, 48).c_str(), 11.5f * S, COL_MUTED);
+
+                const float toggleW = 58.0f * S;
+                DrawInteractiveButton(x + w - toggleW - 10.0f * S, curY + 14.0f * S, toggleW, 40.0f * S, S,
+                                       canToggle ? (code.enabled ? "ON" : "OFF") : "N/A",
+                                       canToggle && code.enabled, [this, i]() {
+                    if (i >= m_geckoSnapshot.codes.size())
+                        return;
+                    const Gecko::CodeSnapshot& snapshot = m_geckoSnapshot.codes[i];
+                    if (snapshot.support == Gecko::SupportLevel::Unsupported || !snapshot.valid)
+                        return;
+                    Gecko::Runtime().Enable(snapshot.id, !snapshot.enabled);
+                    m_geckoSnapshotDirty = true;
+                }, 13.5f * S,
+                canToggle && code.enabled ? Color{ 0.05f, 0.45f, 0.20f, 0.95f } : Color{ 0.10f, 0.14f, 0.18f, 0.95f },
+                canToggle ? COL_CYAN : COL_MUTED);
+
+                DrawInteractiveButton(x + w - 2 * toggleW - 24.0f * S, curY + 14.0f * S, 64.0f * S, 40.0f * S, S,
+                                       "👁", false, [this, i]() {
+                    if (i < m_geckoSnapshot.codes.size())
+                        m_geckoDetail = int(i);
+                }, 15.0f * S);
+                DrawInteractiveButton(x + w - 3 * toggleW - 52.0f * S, curY + 14.0f * S, 54.0f * S, 40.0f * S, S,
+                                       "✕", false, [this, i]() {
+                    if (i >= m_geckoSnapshot.codes.size())
+                        return;
+                    Gecko::Runtime().Remove(m_geckoSnapshot.codes[i].id);
+                    m_geckoSnapshotDirty = true;
+                }, 15.0f * S, Color{ 0.40f, 0.14f, 0.14f, 0.95f }, Color{ 0.90f, 0.40f, 0.40f, 1.0f });
+
+                curY += rowH + gap;
+            }
+        }
+
+        return curY - y;
+    }
+
+    void RenderGeckoAddModal() {
+        const float S = UiScale();
+        DrawRectSolid(0, 0, float(m_width), float(m_height), { 0.0f, 0.0f, 0.0f, 0.55f });
+
+        float modW = std::min(680.0f * S, float(m_width) - 32.0f * S);
+        float modH = 440.0f * S;
+        float modX = (float(m_width) - modW) * 0.5f;
+        float modY = (float(m_height) - modH) * 0.5f;
+
+        DrawRoundedRect(modX, modY, modW, modH, 14.0f * S, COL_BG_DARK, COL_CYAN);
+        DrawText(modX + 18.0f * S, modY + 14.0f * S, Tr("AÑADIR CÓDIGO GECKO", "ADD GECKO CODE"), 20.0f * S, COL_WHITE);
+
+        const float fieldH = 40.0f * S;
+        const float fieldY = modY + 52.0f * S;
+
+        DrawInteractiveButton(modX + 18.0f * S, fieldY, modW - 36.0f * S, fieldH, S,
+                               m_geckoName.empty() ? Tr("Nombre del código", "Code name") : m_geckoName.c_str(),
+                               m_geckoField == 0, [this]() { m_geckoField = 0; }, 14.0f * S,
+                               Color{ 0.05f, 0.10f, 0.14f, 0.95f }, COL_CYAN);
+
+        const float codeTop = fieldY + fieldH + 10.0f * S;
+        const float codeH = 150.0f * S;
+        DrawRoundedRect(modX + 18.0f * S, codeTop, modW - 36.0f * S, codeH, 10.0f * S,
+                        { 0.04f, 0.09f, 0.13f, 0.95f }, COL_PANEL_BORDER);
+        RegisterHitZone(modX + 18.0f * S, codeTop, modW - 36.0f * S, codeH, [this]() { m_geckoField = 1; });
+
+        const std::vector<std::string> codeLines = [] (const std::string& text) {
+            std::vector<std::string> lines;
+            std::string current;
+            for (char c : text) {
+                if (c == '\n') {
+                    lines.push_back(current);
+                    current.clear();
+                } else {
+                    current += c;
+                }
+            }
+            if (!current.empty())
+                lines.push_back(current);
+            return lines;
+        }(m_geckoText);
+
+        for (size_t i = 0; i < codeLines.size() && i < 5; ++i) {
+            std::string line = codeLines[i];
+            if (line.size() > 56)
+                line = line.substr(0, 56) + "…";
+            DrawText(modX + 30.0f * S, codeTop + 12.0f * S + float(i) * 26.0f * S,
+                     line.empty() ? " " : line.c_str(), 13.5f * S, COL_WHITE);
+        }
+        if (codeLines.size() > 5)
+            DrawText(modX + 30.0f * S, codeTop + 12.0f * S + 5.0f * 26.0f * S, "…", 13.5f * S, COL_MUTED);
+
+        const float diagY = codeTop + codeH + 8.0f * S;
+        DrawText(modX + 18.0f * S, diagY, Tr("Diagnostics:", "Diagnostics:"), 13.5f * S, COL_CYAN);
+
+        size_t shown = 0;
+        for (const Gecko::Diagnostic& diagnostic : m_geckoPreview.codes.empty() ?
+             std::vector<Gecko::Diagnostic>{} : m_geckoPreview.codes[0].diagnostics) {
+            if (shown++ >= 4)
+                break;
+            char line[96];
+            std::snprintf(line, sizeof(line), "%s L%d %s",
+                          diagnostic.severity == Gecko::DiagnosticSeverity::Error ? "ERR" : "WARN",
+                          diagnostic.line, diagnostic.message.c_str());
+            DrawText(modX + 24.0f * S, diagY + 18.0f * S + float(shown - 1) * 20.0f * S, line, 12.5f * S,
+                     diagnostic.severity == Gecko::DiagnosticSeverity::Error ?
+                     Color{ 1.0f, 0.45f, 0.45f, 1.0f } : Color{ 1.0f, 0.80f, 0.30f, 1.0f });
+        }
+        if (shown == 0)
+            DrawText(modX + 24.0f * S, diagY + 18.0f * S,
+                     m_geckoPreviewValid ? Tr("Listo para añadir.", "Ready to add.") :
+                     Tr("Pega el texto del código y pulsa Vista previa.", "Paste the code text and press Preview."),
+                     12.5f * S, COL_MUTED);
+
+        const float btnY = modY + modH - 56.0f * S;
+        const float btnW = (modW - 36.0f * S - 28.0f * S) / 3.0f;
+
+        DrawInteractiveButton(modX + 18.0f * S, btnY, btnW, 44.0f * S, S,
+                              Tr("VISTA PREVIA", "PREVIEW"), false, [this]() {
+            std::string text;
+            if (m_geckoText.find('$') != std::string::npos)
+                text = m_geckoText;
+            else
+                text = "$" + (m_geckoName.empty() ? "Custom" : m_geckoName) + "\n" + m_geckoText;
+            m_geckoPreview = Gecko::Parse(text);
+            m_geckoPreviewValid = !m_geckoPreview.codes.empty() && m_geckoPreview.codes[0].valid;
+            m_geckoStatus = m_geckoPreviewValid ?
+                Tr("Código validado.", "Code validated.") :
+                Tr("El código no es válido.", "Code is not valid.");
+        }, 14.0f * S);
+
+        const bool addEnabled = m_geckoPreviewValid;
+        DrawInteractiveButton(modX + 18.0f * S + btnW + 14.0f * S, btnY, btnW, 44.0f * S, S,
+                              Tr("AÑADIR", "ADD"), addEnabled, [this]() {
+            if (!m_geckoPreviewValid)
+                return;
+            Gecko::Runtime().AddCode(m_geckoPreview.codes[0]);
+            m_geckoSnapshotDirty = true;
+            m_geckoStatus = Tr("Código registrado (deshabilitado).", "Code registered (disabled).");
+            CloseCheatModals();
+            RefreshCheatCatalog();
+        }, 14.0f * S,
+        addEnabled ? Color{ 0.05f, 0.35f, 0.25f, 0.95f } : Color{ 0.10f, 0.14f, 0.18f, 0.95f },
+        addEnabled ? COL_CYAN : COL_MUTED);
+
+        DrawInteractiveButton(modX + 18.0f * S + 2.0f * (btnW + 14.0f * S), btnY, btnW, 44.0f * S, S,
+                              Tr("CANCELAR", "CANCEL"), false, [this]() { CloseCheatModals(); }, 14.0f * S,
+                              Color{ 0.30f, 0.14f, 0.14f, 0.95f }, Color{ 0.90f, 0.40f, 0.40f, 1.0f });
+    }
+
+    void RenderGeckoImportModal() {
+        const float S = UiScale();
+        DrawRectSolid(0, 0, float(m_width), float(m_height), { 0.0f, 0.0f, 0.0f, 0.55f });
+
+        float modW = std::min(700.0f * S, float(m_width) - 32.0f * S);
+        float modH = 460.0f * S;
+        float modX = (float(m_width) - modW) * 0.5f;
+        float modY = (float(m_height) - modH) * 0.5f;
+
+        DrawRoundedRect(modX, modY, modW, modH, 14.0f * S, COL_BG_DARK, COL_CYAN);
+        DrawText(modX + 18.0f * S, modY + 14.0f * S, Tr("IMPORTAR CÓDIGOS GECKO", "IMPORT GECKO CODES"), 20.0f * S, COL_WHITE);
+        DrawText(modX + 18.0f * S, modY + 42.0f * S, m_importDisplayName.c_str(), 13.5f * S, COL_MUTED);
+
+        size_t valid = 0;
+        size_t unsupported = 0;
+        size_t invalid = 0;
+
+        for (const Gecko::Code& code : m_importPreview.codes) {
+            if (!code.valid)
+                ++invalid;
+            else if (code.support == Gecko::SupportLevel::Unsupported)
+                ++unsupported;
+            else
+                ++valid;
+        }
+
+        char summary[128];
+        std::snprintf(summary, sizeof(summary), "%zu valid · %zu unsupported · %zu invalid",
+                      valid, unsupported, invalid);
+        DrawText(modX + 18.0f * S, modY + 64.0f * S, summary, 13.0f * S, COL_CYAN);
+
+        float rowY = modY + 92.0f * S;
+        const float rowH = 42.0f * S;
+
+        for (size_t i = 0; i < m_importPreview.codes.size() && i < 6; ++i) {
+            const Gecko::Code& code = m_importPreview.codes[i];
+            const bool isInvalid = !code.valid;
+            const bool isUnsupported = code.support == Gecko::SupportLevel::Unsupported;
+
+            DrawRoundedRect(modX + 18.0f * S, rowY, modW - 36.0f * S, rowH, 8.0f * S,
+                            { 0.04f, 0.09f, 0.13f, 0.95f }, COL_PANEL_BORDER);
+            DrawText(modX + 28.0f * S, rowY + 8.0f * S,
+                     code.name.empty() ? "Code" : code.name.c_str(), 14.0f * S, COL_WHITE);
+
+            const char* status = isInvalid ? "INVALID" :
+                                 (isUnsupported ? "UNSUPPORTED" : Gecko::SupportLevelName(code.support));
+            DrawText(modX + 28.0f * S, rowY + 24.0f * S, status, 11.5f * S,
+                     isInvalid || isUnsupported ? Color{ 1.0f, 0.60f, 0.30f, 1.0f } : COL_MUTED);
+
+            if (code.gameCompatibility == Gecko::GameCompatibility::RegionMismatch)
+                DrawText(modX + 150.0f * S, rowY + 24.0f * S, "REGION", 11.5f * S,
+                         Color{ 1.0f, 0.80f, 0.30f, 1.0f });
+
+            if (!isInvalid) {
+                DrawInteractiveButton(modX + modW - 130.0f * S, rowY + 5.0f * S, 100.0f * S, 32.0f * S, S,
+                                      Tr("IMPORTAR", "IMPORT"), false, [this, i]() {
+                    if (i >= m_importPreview.codes.size())
+                        return;
+                    const Gecko::Code& selected = m_importPreview.codes[i];
+                    bool duplicate = false;
+
+                    for (const Gecko::CodeSnapshot& existing : m_geckoSnapshot.codes)
+                        if (existing.id == selected.id)
+                            duplicate = true;
+
+                    if (duplicate) {
+                        m_geckoStatus = Tr("Ya importado.", "Already imported.");
+                    } else {
+                        Gecko::Runtime().AddCode(selected);
+                        Gecko::SaveImportedFile(m_importDisplayName, m_importSourceText);
+                        m_geckoStatus = Tr("Código importado.", "Code imported.");
+                        m_geckoSnapshotDirty = true;
+                    }
+
+                    CloseCheatModals();
+                    RefreshCheatCatalog();
+                }, 12.5f * S);
+            }
+
+            rowY += rowH + 6.0f * S;
+        }
+
+        if (m_importPreview.codes.size() > 6)
+            DrawText(modX + 18.0f * S, rowY, "…", 14.0f * S, COL_MUTED);
+
+        if (!m_importStatus.empty())
+            DrawText(modX + 18.0f * S, modY + modH - 92.0f * S, m_importStatus.c_str(), 12.5f * S, COL_MUTED);
+
+        const float btnY = modY + modH - 56.0f * S;
+        const float btnW = (modW - 36.0f * S - 14.0f * S) / 2.0f;
+
+        DrawInteractiveButton(modX + 18.0f * S, btnY, btnW, 44.0f * S, S,
+                              Tr("IMPORTAR VÁLIDOS", "IMPORT VALID"), valid > 0, [this]() {
+            size_t added = 0;
+            size_t skipped = 0;
+
+            for (const Gecko::Code& code : m_importPreview.codes) {
+                if (!code.valid)
+                    continue;
+
+                bool duplicate = false;
+                for (const Gecko::CodeSnapshot& existing : m_geckoSnapshot.codes)
+                    if (existing.id == code.id)
+                        duplicate = true;
+
+                if (duplicate) {
+                    ++skipped;
+                    continue;
+                }
+
+                Gecko::Runtime().AddCode(code);
+                ++added;
+            }
+
+            Gecko::SaveImportedFile(m_importDisplayName, m_importSourceText);
+            m_geckoSnapshotDirty = true;
+            m_geckoStatus = "Imported " + std::to_string(added) + ", skipped " + std::to_string(skipped);
+            CloseCheatModals();
+            RefreshCheatCatalog();
+        }, 14.0f * S,
+        valid > 0 ? Color{ 0.05f, 0.35f, 0.25f, 0.95f } : Color{ 0.10f, 0.14f, 0.18f, 0.95f },
+        valid > 0 ? COL_CYAN : COL_MUTED);
+
+        DrawInteractiveButton(modX + 18.0f * S + btnW + 14.0f * S, btnY, btnW, 44.0f * S, S,
+                              Tr("CANCELAR", "CANCEL"), false, [this]() { CloseCheatModals(); }, 14.0f * S,
+                              Color{ 0.30f, 0.14f, 0.14f, 0.95f }, Color{ 0.90f, 0.40f, 0.40f, 1.0f });
+    }
+
+    void RenderGeckoDetailModal() {
+        if (m_geckoDetail < 0 || m_geckoDetail >= int(m_geckoSnapshot.codes.size())) {
+            m_geckoDetail = -1;
+            return;
+        }
+
+        const float S = UiScale();
+        const Gecko::CodeSnapshot& code = m_geckoSnapshot.codes[m_geckoDetail];
+
+        DrawRectSolid(0, 0, float(m_width), float(m_height), { 0.0f, 0.0f, 0.0f, 0.55f });
+
+        float modW = std::min(700.0f * S, float(m_width) - 32.0f * S);
+        float modH = 420.0f * S;
+        float modX = (float(m_width) - modW) * 0.5f;
+        float modY = (float(m_height) - modH) * 0.5f;
+
+        DrawRoundedRect(modX, modY, modW, modH, 14.0f * S, COL_BG_DARK, COL_CYAN);
+        DrawText(modX + 18.0f * S, modY + 14.0f * S, code.name.empty() ? "Code" : code.name.c_str(), 20.0f * S, COL_WHITE);
+
+        char badge[80];
+        std::snprintf(badge, sizeof(badge), "%s%s",
+                       code.valid ? Gecko::SupportLevelName(code.support) : "INVALID",
+                       code.gameCompatibility == Gecko::GameCompatibility::RegionMismatch ? " · REGION" : "");
+        DrawText(modX + 18.0f * S, modY + 44.0f * S, badge, 13.0f * S,
+                 (!code.valid || code.support == Gecko::SupportLevel::Unsupported) ?
+                 Color{ 1.0f, 0.60f, 0.30f, 1.0f } : COL_CYAN);
+
+        const float textY = modY + 68.0f * S;
+        DrawText(modX + 18.0f * S, textY, Tr("Texto:", "Source:"), 13.0f * S, COL_MUTED);
+
+        std::string preview = code.sourceText;
+        if (preview.size() > 400)
+            preview = preview.substr(0, 400) + "…";
+
+        std::vector<std::string> lines;
+        std::string current;
+        for (char c : preview) {
+            if (c == '\n') {
+                lines.push_back(current);
+                current.clear();
+            } else {
+                current += c;
+            }
+        }
+        if (!current.empty())
+            lines.push_back(current);
+
+        for (size_t i = 0; i < lines.size() && i < 6; ++i)
+            DrawText(modX + 18.0f * S, textY + 16.0f * S + float(i) * 19.0f * S, lines[i].c_str(), 12.5f * S, COL_WHITE);
+
+        float diagY = textY + 16.0f * S + std::min<size_t>(lines.size(), 6) * 19.0f * S + 6.0f * S;
+        DrawText(modX + 18.0f * S, diagY, Tr("Diagnósticos:", "Diagnostics:"), 13.0f * S, COL_CYAN);
+
+        size_t shown = 0;
+        for (const Gecko::Diagnostic& diagnostic : code.parseDiagnostics)
+            if (shown++ < 3)
+                DrawText(modX + 24.0f * S, diagY + 18.0f * S + float(shown - 1) * 18.0f * S,
+                         diagnostic.message.c_str(), 12.0f * S, COL_WHITE);
+
+        if (shown == 0)
+            for (const Gecko::Diagnostic& diagnostic : code.runtimeDiagnostics)
+                if (shown++ < 3)
+                    DrawText(modX + 24.0f * S, diagY + 18.0f * S + float(shown - 1) * 18.0f * S,
+                             diagnostic.message.c_str(), 12.0f * S,
+                             diagnostic.severity == Gecko::DiagnosticSeverity::Error ?
+                             Color{ 1.0f, 0.45f, 0.45f, 1.0f } : Color{ 1.0f, 0.80f, 0.30f, 1.0f });
+
+        const float btnY = modY + modH - 56.0f * S;
+        DrawInteractiveButton(modX + modW - 150.0f * S, btnY, 132.0f * S, 44.0f * S, S,
+                              Tr("CERRAR", "CLOSE"), false, [this]() { m_geckoDetail = -1; }, 14.0f * S);
+    }
+
+    void RenderBuiltinTextModal() {
+        if (m_builtinTextCheat >= m_cheatCatalog.size()) {
+            m_builtinTextOpen = false;
+            return;
+        }
+
+        const float S = UiScale();
+        DrawRectSolid(0, 0, float(m_width), float(m_height), { 0.0f, 0.0f, 0.0f, 0.55f });
+
+        float modW = std::min(560.0f * S, float(m_width) - 32.0f * S);
+        float modH = 240.0f * S;
+        float modX = (float(m_width) - modW) * 0.5f;
+        float modY = (float(m_height) - modH) * 0.5f;
+
+        DrawRoundedRect(modX, modY, modW, modH, 14.0f * S, COL_BG_DARK, COL_CYAN);
+        DrawText(modX + 18.0f * S, modY + 14.0f * S,
+                 m_cheatCatalog[m_builtinTextCheat].name, 20.0f * S, COL_WHITE);
+
+        DrawInteractiveButton(modX + 18.0f * S, modY + 54.0f * S, modW - 36.0f * S, 44.0f * S, S,
+                              m_builtinTextBuffer.empty() ? Tr("Texto (máx. 16)", "Text (max. 16)") :
+                              m_builtinTextBuffer.c_str(), false, [this]() { m_builtinTextOpen = true; }, 14.0f * S,
+                              Color{ 0.05f, 0.10f, 0.14f, 0.95f }, COL_CYAN);
+
+        DrawText(modX + 18.0f * S, modY + 112.0f * S,
+                 Tr("Los caracteres se validan y se guardan al confirmar.",
+                    "Characters are validated and saved on confirm."), 13.0f * S, COL_MUTED);
+
+        const float btnY = modY + modH - 56.0f * S;
+        const float btnW = (modW - 36.0f * S - 24.0f * S) / 2.0f;
+
+        DrawInteractiveButton(modX + 18.0f * S, btnY, btnW, 44.0f * S, S,
+                              Tr("GUARDAR", "SAVE"), true, [this]() {
+            LauncherCheats::PostText(m_builtinTextCheat, m_builtinTextBuffer);
+            CloseCheatModals();
+        }, 14.0f * S, Color{ 0.05f, 0.35f, 0.25f, 0.95f }, COL_CYAN);
+
+        DrawInteractiveButton(modX + 18.0f * S + btnW + 24.0f * S, btnY, btnW, 44.0f * S, S,
+                              Tr("CANCELAR", "CANCEL"), false, [this]() { CloseCheatModals(); }, 14.0f * S,
+                              Color{ 0.30f, 0.14f, 0.14f, 0.95f }, Color{ 0.90f, 0.40f, 0.40f, 1.0f });
     }
 
     void RenderEditMode() {
@@ -4423,6 +5107,34 @@ private:
     std::string m_ipInputBuffer = "192.168.1.";
     std::string m_portInputBuffer = "18080";
 
+    // Cheats tab state
+    int m_cheatGroup = 0;
+    std::vector<std::string> m_cheatGroups;
+    std::vector<LauncherCheats::Cheat> m_cheatCatalog;
+    Gecko::ManagerSnapshot m_geckoSnapshot;
+    bool m_geckoSnapshotDirty = true;
+    int m_geckoDetail = -1;
+    bool m_geckoAddOpen = false;
+    int m_geckoField = 0;
+    std::string m_geckoName;
+    std::string m_geckoText;
+    bool m_geckoPreviewValid = false;
+    Gecko::ParseResult m_geckoPreview;
+    std::string m_geckoStatus;
+    bool m_builtinTextOpen = false;
+    size_t m_builtinTextCheat = 0;
+    std::string m_builtinTextBuffer;
+
+    // Gecko import state
+    bool m_importOpen = false;
+    std::string m_importDisplayName;
+    std::string m_importSourceText;
+    Gecko::ParseResult m_importPreview;
+    std::string m_importStatus;
+    std::mutex m_importMutex;
+    bool m_importPending = false;
+    std::string m_importText;
+
     // Macros & Edit Mode
     bool m_macro1Enabled = true;
     bool m_macro2Enabled = false;
@@ -4515,11 +5227,15 @@ bool TouchControls_IsEnabled(void) {
 void TouchControls_HandleSdlEvent(const void* sdlEvent) {
     if (!sdlEvent) return;
 
-    if (AndroidKeyboard_HandleSdlEvent(sdlEvent)) {
+    const SDL_Event* event = reinterpret_cast<const SDL_Event*>(sdlEvent);
+
+    if (g_touchSettingsEngine.HandleCheatTextEvent(event)) {
         return;
     }
 
-    const SDL_Event* event = reinterpret_cast<const SDL_Event*>(sdlEvent);
+    if (AndroidKeyboard_HandleSdlEvent(sdlEvent)) {
+        return;
+    }
 
     switch (event->type) {
     case SDL_EVENT_KEY_DOWN: {
@@ -4636,5 +5352,23 @@ void TouchControls_SetDamageNumbersEnabled(bool enabled) {
 bool TouchControls_IsDamageNumbersEnabled(void) {
     return g_touchSettingsEngine.IsDamageNumbersEnabled();
 }
+
+#if defined(__ANDROID__)
+JNIEXPORT void JNICALL Java_com_oceantri_mh3_OceanTriActivity_nativeGeckoImport(JNIEnv* env, jclass, jstring name, jstring text) {
+    if (!env || !name || !text)
+        return;
+
+    const char* nameChars = env->GetStringUTFChars(name, nullptr);
+    const char* textChars = env->GetStringUTFChars(text, nullptr);
+
+    if (nameChars && textChars)
+        g_touchSettingsEngine.SetPendingGeckoImport(nameChars, textChars);
+
+    if (nameChars)
+        env->ReleaseStringUTFChars(name, nameChars);
+    if (textChars)
+        env->ReleaseStringUTFChars(text, textChars);
+}
+#endif
 
 } // extern "C"

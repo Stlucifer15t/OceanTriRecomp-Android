@@ -17,6 +17,7 @@
 
 #include "abi_bridge.h"
 #include "fatal.h"
+#include "gecko/gecko_manager.h"
 #include "guest_call.h"
 #include "launcher_cheats.h"
 #include "memory.h"
@@ -164,11 +165,14 @@ constexpr const char* kRefused[]{"Cheats are not allowed online,", "please don't
 } // namespace
 
 bool AdmitOnline() {
-    if (!LauncherCheats::EnabledCount())
+    const uint32_t builtin = LauncherCheats::EnabledCount();
+    const uint32_t gecko = Gecko::Runtime().EnabledCount();
+
+    if (builtin == 0 && gecko == 0)
         return true;
 
     if (!refused.exchange(true))
-        std::fprintf(stderr, "MH3 net: online play refused while cheats are on (%u)\n", unsigned(LauncherCheats::EnabledCount()));
+        std::fprintf(stderr, "MH3 net: online play refused while cheats are on (%u built-in, %u Gecko)\n", unsigned(builtin), unsigned(gecko));
 
     return false;
 }

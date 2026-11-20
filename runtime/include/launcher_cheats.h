@@ -64,4 +64,22 @@ bool SetText(size_t cheat, std::string_view text);
 // the first in the list.
 bool EnableByName(std::string_view name, std::string_view value);
 
+// Thread-safe commands for the in-game UI. The game thread applies them in
+// Cheats::Step; Snapshot reads the same state under the same lock.
+void PostEnable(size_t cheat, bool enabled);
+void PostSelect(size_t cheat, size_t choice);
+void PostText(size_t cheat, std::string_view text);
+
+struct State {
+    bool enabled = false;
+    size_t selected = 0;
+    std::string value;
+    std::string text;
+};
+
+State Snapshot(size_t cheat);
+
+// Applies queued UI commands. Called on the game thread by Cheats::Step.
+void ApplyPending();
+
 } // namespace LauncherCheats
